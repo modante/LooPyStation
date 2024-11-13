@@ -45,3 +45,5 @@ Main Features:
 ![imagen](https://github.com/user-attachments/assets/c0264a8e-3662-4eb9-855b-bd9bf15feecf)
 
 
+ToDo:
+- Document switches, connections and wiring
