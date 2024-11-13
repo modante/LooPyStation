@@ -35,6 +35,7 @@ Main Features:
     - Red: Flashes when Loop is restarting
 - Support for 10 tracks (originally only 4) and could be increased till the limits of resources/latency.
 - Mute/Solo waits till the starting of the Master Track to execute it
+- Works with Jack which allows an easy and powerfull configuration
 - If a MIDI Capture Port is detected on Jack, launches FluidSynth
   - Loads the default FluidR3_GM.sf2 (can be changed)
   - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
