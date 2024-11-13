@@ -1,46 +1,44 @@
-# raspi-looper
-Simple 4 track looper for Raspberry Pi. Uses pyaudio.
+# Raspi-Loop-Station
 
-## Hardware Setup
-### Components
-- Raspberry Pi
-- USB sound card
-- 8 Buttons
-- 8 LEDs
-- Audio jacks, wires and connectors to taste
+Inspired on the great Raspi Looper from RandomVertebrate https://github.com/RandomVertebrate/raspi-looper
 
-### Connections
-- Buttons and LEDs connect to GPIO.
-- Sound card plugs into full-size USB port on Raspberry Pi.
-- Looper input goes to sound card input AND to looper input 1 ("LIVE").
-- Soundcard output goes to looper output 2 ("LOOPS").
+Main changes:
+- New design for 6 Buttons:
+  - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
+  - **Rec Button:**
+    - Press to Record. Press again to Stop Recording (Looper Mode)
+  - **Mute/Solo Button:**
+    - When Pressed: Mute selected Track. Press again to UnMute (Looper Mode)
+    - When Held: Solo selected Track. Hold again to UnSolo (Looper Mode)
+  - **Undo/Clear Button:**
+    - When Presses: Undo selected Track  (Looper Mode)
+    - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
+  - **Prev Button:**
+    - When Pressed: Jumps to the prev track (Looper Mode) / Decrease 1 preset number (Looper Mode)
+    - When Held: Decrease 10 preset numbers (FluidSynth Mode)
+  - **Next Button:**
+    - When Pressed: Jumps to the next track (Looper Mode) / Increase 1 preset number (Looper Mode)
+    - When Held: Increase 10 preset numbers (FluidSynth Mode)
+- Added a 7 segments Display
+  - Displays the Track number (0-9) (Looper Mode)
+  - Displays the last digit of GM selected preset (FluidSynth Mode)
+- Added 4 Leds, 1 Red + 1 Green Leds on Rec and Mute/Solo Buttons:
+  - Rec Button:
+    - Yellow (Red+Green): When the Track is waiting to Record instantaneously (in case of Master Track 0) or when restarting the Loop
+    - Red: When recording
+  - Mute/Solo Button:
+    - Green: When Track is Playing (not Muted)
+    - Yellow: When Track is waiting the restarting of the Loop to Mute/UnMute or Solo/UnSolo
+    - Red: Flashes when Loop is restarting
+- Support for 10 tracks (originally only 4) and could be increased till the limits of resources/latency.
+- Mute/Solo waits till the starting of the Master Track to execute it
+- If a MIDI Capture Port is detected on Jack, launches FluidSynth
+  - Loads the default FluidR3_GM.sf2 (can be changed)
+  - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
+  - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth can be recorded on selected Track.
 
-See GPIO connections table and wiring diagram.
+![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
 
-## Software Setup
-### Basic
-- Install pyaudio
-- Uninstall pulseaudio
-- Download this repository
-- Set main.py to start on boot (run main.py as sudo)
+![imagen](https://github.com/user-attachments/assets/c0264a8e-3662-4eb9-855b-bd9bf15feecf)
 
-### Optional/Troubleshooting
-- Uninstall unnecessary software, disable GUI (speed up boot time)
-- Adjust sound levels in alsamixer (if signal is too quiet/loud)
-- Turn off WiFi (reduce noise/interference)
 
-## User Manual
-### Begin Session
-- Press Track 1 Record Button to start looping. Track 1 will start recording.
-- Press Track 1 Record Button to stop recording. Track 1 will now loop.
-
-### During Session
-- Press Record Button to arm a track for recording or overdubbing. Recording will start on the next loop of Track 1.
-- Press Record Button again to stop recording or overdubbing.
-- Press play button to mute or unmute track.
-- While track is playing, hold Record button to undo last overdub.
-- While track is muted, hold Record button to clear track.
-
-### After Session
-- Hold Track 1 Play Button to start new session.
-- Hold Track 2 Play Button to enter 'developer mode' (exit the looper script).
