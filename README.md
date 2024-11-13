@@ -50,3 +50,5 @@ ToDo:
 - Document switches, connections and wiring
 - Make a video to explain how it works
 
+pd: Sorry for the code but I am newby like programmer (1st time using python). Any advice will be welcome :-D
+Thank you for your understanding.
