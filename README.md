@@ -48,3 +48,5 @@ Main Features:
 
 ToDo:
 - Document switches, connections and wiring
+- Make a video to explain how it works
+
