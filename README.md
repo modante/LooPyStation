@@ -1,8 +1,11 @@
 # LooPyStation
 
+10 Tracks Looper with Mute, Solo, Undo and Clear functions and FluidSynth (a soundfont sample player) running at the same time and connected to looper.
+To be used with any USB Sound Card and USB MIDI Keyboard (I use it with a Zoom H5 handy recorder and Evolution MK-461 MIDI Keyboard)
+
 Inspired on the great Raspi Looper from RandomVertebrate https://github.com/RandomVertebrate/raspi-looper
 
-Main changes:
+Main Features:
 - New design for 6 Buttons:
   - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
   - **Rec Button:**
