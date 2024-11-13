@@ -22,10 +22,10 @@ Main Features:
   - **Next Button:**
     - When Pressed: Jumps to the next track (Looper Mode) / Increase 1 preset number (Looper Mode)
     - When Held: Increase 10 preset numbers (FluidSynth Mode)
-- Added a 7 segments Display
+- Added a **7 segments Display**
   - Displays the Track number (0-9) (Looper Mode)
   - Displays the last digit of GM selected preset (FluidSynth Mode)
-- Added 4 Leds, 1 Red + 1 Green Leds on Rec and Mute/Solo Buttons:
+- Added **4 Leds**, 1 Red + 1 Green Leds on Rec and Mute/Solo Buttons:
   - Rec Button:
     - Yellow (Red+Green): When the Track is waiting to Record instantaneously (in case of Master Track 0) or when restarting the Loop
     - Red: When recording
@@ -33,10 +33,10 @@ Main Features:
     - Green: When Track is Playing (not Muted)
     - Yellow: When Track is waiting the restarting of the Loop to Mute/UnMute or Solo/UnSolo
     - Red: Flashes when Loop is restarting
-- Support for 10 tracks (originally only 4) and could be increased till the limits of resources/latency.
+- Support for **10 tracks** (originally only 4) and could be increased till the limits of resources/latency.
 - Mute/Solo waits till the starting of the Master Track to execute it
-- Works with Jack which allows an easy and powerfull configuration
-- If a MIDI Capture Port is detected on Jack, launches FluidSynth
+- Works with **Jack** which allows an easy and powerfull configuration
+- If a MIDI Capture Port is detected on Jack, launches **FluidSynth**
   - Loads the default FluidR3_GM.sf2 (can be changed)
   - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
   - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth can be recorded on selected Track.
