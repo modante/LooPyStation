@@ -36,10 +36,12 @@ Main Features:
 - Support for **10 tracks** (originally only 4) and could be increased till the limits of resources/latency.
 - Mute/Solo waits till the starting of the Master Track to execute it
 - Works with **Jack** which allows an easy and powerfull configuration
+  - All the physical inputs of soundcard (Jack capture ports) are connected to Input port of Looper
+  - The Output Port of the Looper is connected with all the physical outputs of soundcard (Jack Playback ports)
 - If a MIDI Capture Port is detected on Jack, launches **FluidSynth**
   - Loads the default FluidR3_GM.sf2 (can be changed)
   - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
-  - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth can be recorded on selected Track.
+  - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth is connected to Input port of Looper in order to be recorded on selected Track.
 
 ![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
 
