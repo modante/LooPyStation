@@ -18,10 +18,10 @@ Main Features:
     - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
   - **Prev Button:**
     - When Pressed: Jumps to the prev track (Looper Mode) / Decrease 1 preset number (Looper Mode)
-    - When Held: Decrease 10 preset numbers (FluidSynth Mode)
+    - When Held: Decrease 10 preset numbers (FluidSynth Mode) / Decrease Volume of selected Track (Looper Mode)
   - **Next Button:**
     - When Pressed: Jumps to the next track (Looper Mode) / Increase 1 preset number (Looper Mode)
-    - When Held: Increase 10 preset numbers (FluidSynth Mode)
+    - When Held: Increase 10 preset numbers (FluidSynth Mode) / Increase Volume of selected Track (Looper Mode)
 - Added a **7 segments Display**
   - Displays the Track number (0-9) (Looper Mode)
   - Displays the last digit of GM selected preset (FluidSynth Mode)
