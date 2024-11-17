@@ -141,77 +141,84 @@ def Change_Mode():
     mode_was_held = False
 
 #Behavior when PREVBUTTON is pressed
-def prevloop():
+def Prev_Button_Press():
     global LoopNumber, Preset, prev_was_held
-    if Mode == 0 and setup_donerecording:
-        if LoopNumber == 0:
-            LoopNumber = 9
-        else:
-            LoopNumber = LoopNumber-1
-        print('-= Prev Loop =---> ', LoopNumber,'\n')
-    if Mode == 1:
-        if not prev_was_held:
+    if not prev_was_held:
+        if Mode == 0 and setup_donerecording:
+            if LoopNumber == 0:
+                LoopNumber = 9
+            else:
+                LoopNumber = LoopNumber-1
+            print('-= Prev Loop =---> ', LoopNumber,'\n')
+        if Mode == 1:
             if Preset >= 1:
                 Preset = Preset-1
                 changepreset()
-        prev_was_held = False
+    prev_was_held = False
 
 #Behavior when PREVBUTTON is held
-def prevpreset():
+def Prev_Button_Held():
     global Preset, prev_was_held
+    if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
+        if loops[LoopNumber].volume >= 1:
+            loops[LoopNumber].volume = loops[LoopNumber].volume - 1
+            print('Volume Decreased = ', loops[LoopNumber].volume,'\n')
     if Mode == 1:
         if Preset >= 10:
             Preset = Preset-10
         changepreset()
-        prev_was_held = True
+    prev_was_held = True
 
 #Behavior when NEXTBUTTON is pressed
-def nextloop():
+def Next_Button_Press():
     global LoopNumber, Preset, next_was_held
-    if Mode == 0 and setup_donerecording:
-        if LoopNumber == 9:
-            LoopNumber = 0
-        else:
-            LoopNumber = LoopNumber+1
-        print('-= Next Loop =---> ', LoopNumber,'\n')
-    if Mode == 1:
-        if not next_was_held:
+    if not next_was_held:
+        if Mode == 0 and setup_donerecording:
+            if LoopNumber == 9:
+                LoopNumber = 0
+            else:
+                LoopNumber = LoopNumber+1
+            print('-= Next Loop =---> ', LoopNumber,'\n')
+        if Mode == 1:
             if Preset <= 126:
                 Preset = Preset+1
                 changepreset()
-        next_was_held = False
+    next_was_held = False
 
 #Behavior when NEXTBUTTON is held
-def nextpreset():
+def Next_Button_Held():
     global Preset, next_was_held
+    if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
+        if loops[LoopNumber].volume <= 9:
+            loops[LoopNumber].volume = loops[LoopNumber].volume + 1
+            print('Volume Increased = ', loops[LoopNumber].volume,'\n')
     if Mode == 1:
         if Preset <= 110:
             Preset = Preset+10
         changepreset()
-        next_was_held = True
+    next_was_held = True
 
 #Behavior when RECBUTTON is pressed
-def setrecord():
+def Rec_Button_Pressed():
     loops[LoopNumber].set_recording()
 
 #Behavior when MUTEBUTTON is pressed
-def setmute():
+def Mute_Button_Pressed():
     global play_was_held
     if setup_donerecording:
         if not play_was_held:
             loops[LoopNumber].toggle_mute()
         play_was_held = False
 
-
 #Behavior when MUTEBUTTON is held
-def setsolo():
+def Mute_Button_Held():
     global play_was_held
     if setup_donerecording:
         play_was_held = True
         loops[LoopNumber].toggle_solo()
 
 #Behavior when UNDOBUTTON is pressed
-def setundo():
+def Undo_Button_Pressed():
     global undo_was_held
     if setup_donerecording:
         if not undo_was_held:
@@ -219,7 +226,7 @@ def setundo():
         undo_was_held = False
 
 #Behavior when UNDOBUTTON is held
-def setclear():
+def Undo_Button_Held():
     global undo_was_held
     undo_was_held = True
     loops[LoopNumber].clear()
@@ -270,18 +277,18 @@ def is_jack_server_running():
         return False
 
 #Defining functions of all the buttons during jam session...
-PREVBUTTON.when_released = prevloop
-PREVBUTTON.when_held = prevpreset
-NEXTBUTTON.when_released = nextloop
-NEXTBUTTON.when_held = nextpreset
+PREVBUTTON.when_released = Prev_Button_Press
+PREVBUTTON.when_held = Prev_Button_Held
+NEXTBUTTON.when_released = Next_Button_Press
+NEXTBUTTON.when_held = Next_Button_Held
 MODEBUTTON.when_released = Change_Mode
 MODEBUTTON.when_held = restart_program
-RECBUTTON.when_pressed = setrecord
+RECBUTTON.when_pressed = Rec_Button_Pressed
 #RECBUTTON.when_held =
-UNDOBUTTON.when_released = setundo
-UNDOBUTTON.when_held = setclear
-PLAYBUTTON.when_released = setmute
-PLAYBUTTON.when_held = setsolo
+UNDOBUTTON.when_released = Undo_Button_Pressed
+UNDOBUTTON.when_held = Undo_Button_Held
+PLAYBUTTON.when_released = Mute_Button_Pressed
+PLAYBUTTON.when_held = Mute_Button_Held
 
 display.value = " ."
 while Mode == 3:
@@ -324,13 +331,9 @@ class audioloop:
         self.is_waiting_mute = False
         self.is_solo = False
         self.is_waiting = False
+        self.volume = 10
         self.pointer_last_buffer_recorded = 0 #index of last buffer added
         self.preceding_buffer = np.zeros([CHUNK], dtype = np.int16)
-        """
-        Dub ratio must be reduced with each overdub to keep all overdubs at the same level while preventing clipping.
-        first overdub is attenuated by a factor of 0.9, second by 0.81, etc.
-        each time the existing audio is attenuated by a factor of 0.9.
-        """
         self.dub_ratio = 1.0
 
     #increment_pointers() increments pointers and, when restarting while recording, advances dub ratio
@@ -465,16 +468,6 @@ class audioloop:
         #self.dub_audio[self.writep, :] = datadump[:]
         self.dub_audio[self.writep, :] = self.main_audio[self.writep, :]
         self.main_audio[self.writep, :] = datadump[:]
-
-    #clear if muted, undo if playing.
-    def clear_or_undo(self):
-        print('-=Clear or Undo=-','\n')
-        if self.is_recording:
-            self.clear()
-        if self.is_playing:
-            self.undo()
-        else:
-            self.clear()
 
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
     def clear(self):
@@ -695,7 +688,7 @@ def looping_callback(frames):
 
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:] = np.multiply((
-        loops[0].read().astype(np.int32)
+        (loops[0].read()*loops[0].volume/10).astype(np.int32)
         + loops[1].read().astype(np.int32)
         + loops[2].read().astype(np.int32)
         + loops[3].read().astype(np.int32)
