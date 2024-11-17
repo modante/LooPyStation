@@ -47,15 +47,15 @@ down_ramp = np.linspace(1, 0, CHUNK)
 up_ramp = np.linspace(0, 1, CHUNK)
 
 #Buttons, Leds and 8-Segments Display
-debounce_length = 0.1 #length in seconds of button debounce period
+debounce_length = 0.05 #length in seconds of button debounce period
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
 PLAYLEDR = (LED(26, active_high=False))
 PLAYLEDG = (LED(20, active_high=False))
 RECLEDR = (LED(0, active_high=False))
 RECLEDG = (LED(1, active_high=False))
-PLAYBUTTON = (Button(17, bounce_time = debounce_length))
+PLAYBUTTON = (Button(15, bounce_time = debounce_length))
 RECBUTTON = (Button(18, bounce_time = debounce_length))
-UNDOBUTTON = (Button(15, bounce_time = debounce_length))
+UNDOBUTTON = (Button(17, bounce_time = debounce_length))
 PREVBUTTON = (Button(5, bounce_time = debounce_length))
 NEXTBUTTON = (Button(12, bounce_time = debounce_length))
 MODEBUTTON = (Button(6, bounce_time = debounce_length))
@@ -215,14 +215,15 @@ def setundo():
     global undo_was_held
     if setup_donerecording:
         if not undo_was_held:
-            undo_was_held = True
             loops[LoopNumber].undo()
+        undo_was_held = False
 
 #Behavior when UNDOBUTTON is held
 def setclear():
     global undo_was_held
+    undo_was_held = True
     loops[LoopNumber].clear()
-    undo_was_held = False
+
 
 #Behavior when MODEBUTTON is held
 def changepreset():
@@ -336,12 +337,15 @@ class audioloop:
     def increment_pointers(self):
         if self.readp == self.length - 1:
             self.readp = 0
+            print(' '*60, end='\r')
             if self.is_recording:
                 self.dub_ratio = self.dub_ratio * 0.9
-                print('Self dub ratio = ',self.dub_ratio,'\n')
+                #print('Self dub ratio = ',self.dub_ratio,'\n')
         else:
             self.readp = self.readp + 1
+        progress = (loops[0].readp / (loops[0].length + 1))*41
         self.writep = (self.writep + 1) % self.length
+        print('#'*int(progress), end='\r')
 
     #initialize() raises self.length to closest integer multiple of LENGTH and initializes read and write pointers
     def initialize(self): #It initializes when recording of loop stops. It de-initializes after Clearing.
@@ -379,9 +383,15 @@ class audioloop:
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
         if self.is_playing:
-            self.is_waiting_mute = True
+            if not self.is_waiting_mute:
+                self.is_waiting_mute = True
+            else:
+                self.is_waiting_mute = False
         else:
-            self.is_waiting_play = True
+            if not self.is_waiting_play:
+                self.is_waiting_play = True
+            else:
+                self.is_waiting_play = False
             self.is_solo = False
         debug()
 
@@ -389,19 +399,18 @@ class audioloop:
         print('-=Toggle Solo=-','\n')
         if not self.is_solo:
             print('-------------Solo')
-            self.is_solo = True
-            for i in range(9):
-                if LoopNumber != i and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
+            for i in range(10):
+                if i != LoopNumber and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
                     loops[i].is_waiting_mute = True
-        elif self.is_solo:
+            self.is_solo = True
+        else:
             print('-------------UnSolo')
-            self.is_solo = False
-            for i in range (9):
-                if LoopNumber != i and loops[i].initialized:
-                    if not loops[i].is_playing:
-                        loops[i].is_waiting_play = True
+            for i in range (10):
+                if i != LoopNumber:
+                    loops[i].is_waiting_play = True
                     loops[i].is_solo = False
-        self.is_waiting_play = True
+            self.is_solo = False
+
         debug()
 
     #Restarting is True only when readp==0 and the loop is initialized, and is only checked after recording the Master Loop (0)
@@ -421,11 +430,11 @@ class audioloop:
         if not self.initialized:
             return(silence)
 
-        if self.is_waiting_play and self.readp == 0:
+        if self.is_waiting_play and loops[0].readp == 0:
             self.is_waiting_play = False
             self.is_playing = True
 
-        if self.is_waiting_mute and self.readp == 0:
+        if self.is_waiting_mute and loops[0].readp == 0:
             self.is_waiting_mute = False
             self.is_playing = False
 
@@ -437,11 +446,12 @@ class audioloop:
         tmp = self.readp
         self.increment_pointers()
 
-        if self.readp == 0:
+        if loops[0].readp == 0:
             PLAYLEDR.on()
             PLAYLEDG.off()
 
-        return(self.main_audio[tmp, :] + self.dub_audio[tmp, :])
+        #return(self.main_audio[tmp, :] + self.dub_audio[tmp, :])
+        return(self.main_audio[tmp, :])
 
     #dub() overdubs an incoming buffer of audio to the loop at writep
     #   at writep:
@@ -451,8 +461,10 @@ class audioloop:
         if not self.initialized:
             return
         datadump = np.copy(data)
-        self.main_audio[self.writep, :] = self.main_audio[self.writep, :] * 0.9 + self.dub_audio[self.writep, :] * self.dub_ratio
-        self.dub_audio[self.writep, :] = datadump[:]
+        #self.main_audio[self.writep, :] = self.main_audio[self.writep, :] * 0.9 + self.dub_audio[self.writep, :] * self.dub_ratio
+        #self.dub_audio[self.writep, :] = datadump[:]
+        self.dub_audio[self.writep, :] = self.main_audio[self.writep, :]
+        self.main_audio[self.writep, :] = datadump[:]
 
     #clear if muted, undo if playing.
     def clear_or_undo(self):
@@ -490,6 +502,8 @@ class audioloop:
                 loop.initialized = False
                 loop.length_factor = 1
                 loop.length = 0
+                loop.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype = np.int16)
+                loop.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype = np.int16)
             setup_donerecording = False
             setup_is_recording = False
             LENGTH = 0
@@ -499,7 +513,7 @@ class audioloop:
     #undo() resets dub_audio to silence
     def undo(self):
         print('-=Undo=-','\n')
-        self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype = np.int16)
+        self.dub_audio, self.main_audio = self.main_audio, self.dub_audio
         self.is_recording = False
         self.is_waiting = False
         debug()
@@ -553,6 +567,7 @@ def debug():
         print(i, ' |', int(loops[i].initialized), '\t|', int(loops[i].is_recording), '\t|', int(loops[i].is_waiting), '\t|', int(loops[i].is_playing), '\t|', int(loops[i].is_waiting_play), '\t|', int(loops[i].is_waiting_mute), '\t|', int(loops[i].is_solo))
     print('setup_donerecording = ', setup_donerecording, ' setup_is_recording = ', setup_is_recording)
     print('length = ', loops[LoopNumber].length, 'LENGTH = ', LENGTH, 'length_factor = ', loops[LoopNumber].length_factor,'\n')
+    print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
 
 #update output volume to prevent mixing distortion due to sample overflow
 #slow to run, so should be called on a different thread (e.g. a button callback function)
