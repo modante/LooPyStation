@@ -43,9 +43,12 @@ Main Features:
   - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
   - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth is connected to Input port of Looper in order to be recorded on selected Track.
 
+Video: Fist sesions of Ephemeral Songs https://video.anartist.org/w/d7WA2y3ncZWzXvwGi6GirG
+
 ![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
 
 ![imagen](https://github.com/user-attachments/assets/c0264a8e-3662-4eb9-855b-bd9bf15feecf)
+
 
 
 ToDo:
