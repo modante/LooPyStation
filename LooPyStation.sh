@@ -10,6 +10,3 @@ else
         read -t 1 -p "I am going to wait for 1 second ..."
     done
 fi
-
-
-
