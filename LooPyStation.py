@@ -322,10 +322,25 @@ UNDOBUTTON.when_held=Undo_Button_Held
 PLAYBUTTON.when_released=Mute_Button_Pressed
 PLAYBUTTON.when_held=Mute_Button_Held
 
+print("Detecting SoundCard Number:",str(INDEVICE))
+
 display.value=" ."
 while Mode == 3:
-    print('Waiting to Start. Press MODEBUTTON', end='\r')
-    time.sleep(0.5)
+    try:
+        with open("/proc/asound/cards", "r") as f:
+            content = f.read().strip()
+        # If the file is empty or contains "-1", no sound card is connected
+        if not content or "-1" in content:
+            print("No sound card detected.")
+        # Check if "H5" is in the list of sound cards
+        if (" "+str(INDEVICE+" [") in content:
+            Mode=0
+            print("Sound card number:",str(INDEVICE)," detected\n")
+        else:
+            print("Sound card number:",str(INDEVICE)," NOT detected", end='\r'')
+            time.sleep(0.5)
+    except FileNotFoundError:
+        return "This system does not have /proc/asound/cards. Not a Linux system?"
 
 # Test if jack server is running and if not, run it
 if is_jack_server_running():
