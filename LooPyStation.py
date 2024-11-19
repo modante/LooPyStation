@@ -40,6 +40,7 @@ Preset=0
 Bank=0
 Counter=1
 First_Run=0
+OrigVolume=0.7
 sf2_dir="./sf2" # Get a list of all files in the directory ./sf2
 sf2_list=sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])
 print('Rate: ' + str(RATE) + ' / CHUNK: ' +  str(CHUNK),'\n')
@@ -47,7 +48,7 @@ print('Latency correction (buffers): ' + str(LATENCY),'\n')
 
 #mixed output (sum of audio from tracks) is multiplied by output_volume before being played.
 #This is updated dynamically as max peak in resultant audio changes
-output_volume=np.float16(1.0)
+output_volume=np.float32(1.0)
 #multiplying by up_ramp and down_ramp gives fade-in and fade-out
 down_ramp=np.linspace(1, 0, CHUNK)
 up_ramp=np.linspace(0, 1, CHUNK)
@@ -99,7 +100,7 @@ def fade_out(buffer):
     np.multiply(buffer, down_ramp, out=buffer, casting='unsafe')
 
 #Converts pcm2float array
-def pcm2float(sig, dtype='float64'):
+def pcm2float(sig, dtype='float32'):
     sig=np.asarray(sig)
     if sig.dtype.kind not in 'iu':
         raise TypeError("'sig' must be an array of integers")
@@ -169,8 +170,8 @@ def Prev_Button_Press():
 def Prev_Button_Held():
     global Bank, prev_was_held
     if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume >= 1:
-            loops[LoopNumber].volume=loops[LoopNumber].volume - 1
+        if loops[LoopNumber].volume >= 0.1:
+            loops[LoopNumber].volume=loops[LoopNumber].volume - 0.1
             print('Volume Decreased=', loops[LoopNumber].volume,'\n')
             display.value=((str(loops[LoopNumber].volume))[-1])
             debug()
@@ -200,8 +201,8 @@ def Next_Button_Press():
 def Next_Button_Held():
     global Bank, next_was_held
     if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume <= 9:
-            loops[LoopNumber].volume=loops[LoopNumber].volume + 1
+        if loops[LoopNumber].volume <= 1.4:
+            loops[LoopNumber].volume=loops[LoopNumber].volume + 0.1
             print('Volume Increased=', loops[LoopNumber].volume,'\n')
             display.value=((str(loops[LoopNumber].volume))[-1])
             debug()
@@ -323,24 +324,20 @@ PLAYBUTTON.when_released=Mute_Button_Pressed
 PLAYBUTTON.when_held=Mute_Button_Held
 
 print("Detecting SoundCard Number:",str(INDEVICE))
-
 display.value=" ."
 while Mode == 3:
     try:
         with open("/proc/asound/cards", "r") as f:
-            content = f.read().strip()
-        # If the file is empty or contains "-1", no sound card is connected
-        if not content or "-1" in content:
-            print("No sound card detected.")
+            content=f.read().strip()
         # Check if "H5" is in the list of sound cards
-        if (" "+str(INDEVICE+" [") in content:
+        if (" "+str(INDEVICE)+" [") in content:
             Mode=0
             print("Sound card number:",str(INDEVICE)," detected\n")
         else:
-            print("Sound card number:",str(INDEVICE)," NOT detected", end='\r'')
-            time.sleep(0.5)
+            print("Sound card number:",str(INDEVICE)," NOT detected", end='\r')
+            time.sleep(1)
     except FileNotFoundError:
-        return "This system does not have /proc/asound/cards. Not a Linux system?"
+        print("This system does not have /proc/asound/cards. Not a Linux system?")
 
 # Test if jack server is running and if not, run it
 if is_jack_server_running():
@@ -377,7 +374,7 @@ class audioloop:
         self.is_waiting_mute=False
         self.is_solo=False
         self.is_waiting=False
-        self.volume=7
+        self.volume=OrigVolume
         self.pointer_last_buffer_recorded=0 #index of last buffer added
         self.preceding_buffer=np.zeros([CHUNK], dtype=np.int16)
         self.dub_ratio=1.0
@@ -531,6 +528,7 @@ class audioloop:
             self.is_waiting=False
             self.length_factor=1
             self.length=0
+            self.volume=OrigVolume
             self.readp=0
             self.writep=0
             self.pointer_last_buffer_recorded=0
@@ -543,6 +541,7 @@ class audioloop:
                 loop.is_waiting=False
                 loop.length_factor=1
                 loop.length=0
+                loop.volume=OrigVolume
                 loop.main_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
                 loop.dub_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
             setup_donerecording=False
@@ -616,8 +615,8 @@ loops=[audioloop() for _ in range(10)]
 
 def debug():
     print('  |init\t|isrec\t|iswait\t|isplay\t|iswaiP\t|iswaiM\t|Solo\t|Vol')
-    for i in range(4):
-        print(i, ' |', int(loops[i].initialized), '\t|', int(loops[i].is_recording), '\t|', int(loops[i].is_waiting), '\t|', int(loops[i].is_playing), '\t|', int(loops[i].is_waiting_play), '\t|', int(loops[i].is_waiting_mute), '\t|', int(loops[i].is_solo), '\t|', int(loops[i].volume))
+    for i in range(9):
+        print(i, ' |', int(loops[i].initialized), '\t|', int(loops[i].is_recording), '\t|', int(loops[i].is_waiting), '\t|', int(loops[i].is_playing), '\t|', int(loops[i].is_waiting_play), '\t|', int(loops[i].is_waiting_mute), '\t|', int(loops[i].is_solo), '\t|', loops[i].volume)
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
     print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
     print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
@@ -702,7 +701,7 @@ def looping_callback(frames):
         return
 
     # Read input buffer from JACK
-    current_rec_buffer=np.right_shift(float2pcm(input_port.get_array()),2) #some input attenuation for overdub headroom purposes
+    current_rec_buffer=np.right_shift(float2pcm(input_port.get_array()),0) #some input attenuation for overdub headroom purposes
 
     # Setup: First Recording
     if not setup_donerecording: #if setup is not done i.e. if the master loop hasn't been recorded to yet
@@ -745,16 +744,16 @@ def looping_callback(frames):
 
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:]=np.multiply((
-        (loops[0].read()*loops[0].volume/10).astype(np.int32)
-        + (loops[1].read()*loops[1].volume/10).astype(np.int32)
-        + (loops[2].read()*loops[2].volume/10).astype(np.int32)
-        + (loops[3].read()*loops[3].volume/10).astype(np.int32)
-        + (loops[4].read()*loops[4].volume/10).astype(np.int32)
-        + (loops[5].read()*loops[5].volume/10).astype(np.int32)
-        + (loops[6].read()*loops[6].volume/10).astype(np.int32)
-        + (loops[7].read()*loops[7].volume/10).astype(np.int32)
-        + (loops[8].read()*loops[8].volume/10).astype(np.int32)
-        + (loops[9].read()*loops[9].volume/10).astype(np.int32)
+        loops[0].read().astype(np.int32)*loops[0].volume+
+        loops[1].read().astype(np.int32)*loops[1].volume+
+        loops[2].read().astype(np.int32)*loops[2].volume+
+        loops[3].read().astype(np.int32)*loops[3].volume+
+        loops[4].read().astype(np.int32)*loops[4].volume+
+        loops[5].read().astype(np.int32)*loops[5].volume+
+        loops[6].read().astype(np.int32)*loops[6].volume+
+        loops[7].read().astype(np.int32)*loops[7].volume+
+        loops[8].read().astype(np.int32)*loops[8].volume+
+        loops[9].read().astype(np.int32)*loops[9].volume
     ), output_volume, out=None, casting='unsafe').astype(np.int16)
 
     #current buffer will serve as previous in next iteration
@@ -811,7 +810,7 @@ with client:
                 soundfont=" ./sf2/"+str(sf2_list[0])
             else:
                 soundfont=""
-            os.system ("sudo -H -u raspi fluidsynth -isj -a jack -r 48000 -g 0.8 -o 'midi.driver=jack' -o 'audio.jack.autoconnect=True' -o 'shell.port=9988'  "+soundfont+" &")
+            os.system ("sudo -H -u raspi fluidsynth -isj -a jack -r 48000 -g 0.9 -o 'midi.driver=jack' -o 'audio.jack.autoconnect=True' -o 'shell.port=9988'  "+soundfont+" &")
             print('---FluidSynth Jack Starting---','\n')
             time.sleep(3)
             connect_fluidsynth_to_input()
