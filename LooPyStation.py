@@ -422,6 +422,9 @@ class audioloop:
         if self.length >= (MAXLENGTH - 1):
             self.length=0
             print('loop full')
+            if LoopNumber==0:
+                setup_donerecording=True
+                setup_is_recording=False
             return
         self.main_audio[self.length, :]=np.copy(data) #Add to main_audio the buffer entering through Jack
         self.length=self.length + 1 #Increase the length of the loop
@@ -516,23 +519,7 @@ class audioloop:
 
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
     def clear(self):
-        global setup_donerecording
-        global setup_is_recording
-        global LENGTH
-        if self.initialized:
-            self.main_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-            self.dub_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-            self.initialized=False
-            self.is_playing=False
-            self.is_recording=False
-            self.is_waiting=False
-            self.length_factor=1
-            self.length=0
-            self.volume=OrigVolume
-            self.readp=0
-            self.writep=0
-            self.pointer_last_buffer_recorded=0
-            self.preceding_buffer=np.zeros([CHUNK], dtype=np.int16)
+        global setup_donerecording, setup_is_recording, LENGTH
         if LoopNumber == 0:
             for loop in loops:
                 loop.initialized=False
@@ -542,33 +529,48 @@ class audioloop:
                 loop.length_factor=1
                 loop.length=0
                 loop.volume=OrigVolume
-                loop.main_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-                loop.dub_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+                loop.readp = 0
+                loop.writep = 0
+                loop.pointer_last_buffer_recorded = 0
+                loop.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+                loop.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+                loop.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
             setup_donerecording=False
             setup_is_recording=False
             LENGTH=0
             print('-=Cleared ALL=-','\n')
         else:
-            print('-=Clear=-','\n')
-        debug()
-
-    #undo() resets dub_audio to silence
-    def undo(self):
-        if self.initialized:
-            if not self.is_recording:
-                self.dub_audio, self.main_audio=self.main_audio, self.dub_audio
-                self.is_recording=False
-                self.is_waiting=False
-                print('-=Undo=-','\n')
-        else:
-            self.is_recording=False
+            self.initialized=False
             self.is_playing=False
             self.is_recording=False
             self.is_waiting=False
             self.length_factor=1
             self.length=0
-            self.main_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-            debug()
+            self.volume=OrigVolume
+            self.readp=0
+            self.writep=0
+            self.pointer_last_buffer_recorded = 0
+            self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+            self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+            self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
+            print('-=Clear=-','\n')
+        debug()
+
+    #undo() resets dub_audio to silence
+    def undo(self):
+        if not self.is_recording:
+            if self.initialized:
+                self.dub_audio, self.main_audio=self.main_audio, self.dub_audio
+                print('-=Undo=-', '\n')
+        else:
+            if not self.initialized:
+                self.clear()
+            else:
+                self.is_recording = False
+                self.is_waiting = False
+                self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+            print('-=Undo Recording=-', '\n')
+        debug()
 
     #start recording
     def start_recording(self, previous_buffer):
@@ -582,14 +584,14 @@ class audioloop:
     #   if uninitialized and recording, stop recording (appending) and initialize
     #   if initialized and not recording, set as "waiting to record"
     def set_recording(self):
-        global setup_is_recording
-        global setup_donerecording
+        global setup_is_recording, setup_donerecording
         print('----- set_recording called for Track', LoopNumber,'\n')
         already_recording=False
 
         #if chosen track is currently recording, flag it
         if self.is_recording:
             already_recording=True
+
             #turn off recording
             if not self.initialized:
                 self.initialize()
@@ -597,9 +599,9 @@ class audioloop:
                     setup_is_recording=False
                     setup_donerecording=True
                     print('---Master Track Recorded---','\n')
-        self.is_recording=False
+        self.is_recording = False
+        self.is_waiting = False
 
-        self.is_waiting=False
         #unless flagged, schedule recording. If chosen track was recording, then stop recording
         #like a toggle but with delayed enabling and instant disabling
         if not already_recording:
@@ -691,12 +693,11 @@ prev_rec_buffer=np.zeros([CHUNK], dtype=np.int16) #While looping, prev_rec_buffe
 @client.set_process_callback
 def looping_callback(frames):
     global play_buffer, current_rec_buffer, prev_rec_buffer
-    global setup_donerecording, setup_is_recording
     global LENGTH, First_Run
 
-    # Wait 5 seconds aprox. only the First_Run to allow all the jack configuration be finished
+    # Waits 4 seconds aprox. only the First_Run to allow all the jack connections be finished
     if First_Run < (25000/RATE*CHUNK):
-        First_Run=First_Run +1
+        First_Run=First_Run+1
         print(First_Run, end='\r')
         return
 
@@ -708,11 +709,6 @@ def looping_callback(frames):
         loops[0].is_waiting=1
 
         if setup_is_recording: #if setup is currently recording, that recording action happens in the following lines
-            if LENGTH >= MAXLENGTH: #if the max allowed loop length is exceeded, stop recording and start looping
-                print('Overflow')
-                setup_donerecording=True
-                setup_is_recording=False
-                return
             loops[0].add_buffer(current_rec_buffer) #otherwise append incoming audio to master loop, increment LENGTH and continue
             LENGTH += 1
             return
@@ -726,11 +722,6 @@ def looping_callback(frames):
             if loop.is_waiting:
                 loop.start_recording(prev_rec_buffer)
                 print('---=Recording Track number:', LoopNumber, '=---','\n')
-
-     #if master loop is waiting just start recording without checking restart
-    if loops[0].is_waiting and not loops[0].initialized:
-        loops[0].start_recording(prev_rec_buffer)
-        print('????? if master loop is waiting just start recording without checking restart')
 
     #if a loop is recording, check initialization and accordingly append or overdub
     for loop in loops:
