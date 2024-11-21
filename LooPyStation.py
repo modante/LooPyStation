@@ -1,10 +1,9 @@
 import jack
-import pyaudio
 import numpy as np
 import time
+import os, sys
 from gpiozero import LED, Button, LEDCharDisplay
 from time import sleep
-import os, sys
 
 print('Starting RaspiLoopStation...','\n')
 
@@ -16,8 +15,6 @@ settings_file.close()
 #Variables Initialization
 RATE=int(parameters[0]) #sample rate
 CHUNK=int(parameters[1]) #buffer size
-FORMAT=pyaudio.paInt16 #specifies bit depth (16-bit)
-CHANNELS=1 #mono audio
 latency_in_milliseconds=int(parameters[2])
 LATENCY=round((latency_in_milliseconds/1000) * (RATE/CHUNK)) #latency in buffers
 INDEVICE=int(parameters[3]) #index (per pyaudio) of input device
@@ -30,6 +27,7 @@ LENGTH=0 #length of the first recording on track 1, all subsequent recordings qu
 LoopNumber=0 #Pointer to the selected loop
 setup_is_recording=False #set to True when track 1 recording button is first pressed
 setup_donerecording=False #set to true when first track 1 recording is done
+rec_was_held=False
 play_was_held=False
 undo_was_held=False
 prev_was_held=False
@@ -38,9 +36,11 @@ mode_was_held=False
 Mode=3
 Preset=0
 Bank=0
-Counter=1
+BankCounter=1
 First_Run=0
-OrigVolume=0.7
+OrigVolume=7
+DispData=""
+dispcount=0
 sf2_dir="./sf2" # Get a list of all files in the directory ./sf2
 sf2_list=sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])
 print('Rate: ' + str(RATE) + ' / CHUNK: ' +  str(CHUNK),'\n')
@@ -66,24 +66,17 @@ UNDOBUTTON=(Button(17, bounce_time=debounce_length))
 PREVBUTTON=(Button(5, bounce_time=debounce_length))
 NEXTBUTTON=(Button(12, bounce_time=debounce_length))
 MODEBUTTON=(Button(6, bounce_time=debounce_length))
-PLAYBUTTON.hold_time=0.5
+
 RECBUTTON.hold_time=0.5
+PLAYBUTTON.hold_time=0.5
 UNDOBUTTON.hold_time=0.5
 PREVBUTTON.hold_time=0.5
 NEXTBUTTON.hold_time=0.5
 MODEBUTTON.hold_time=3
 
-#Behavior when MODEBUTTON is held
-def restart_program():
-    display.value=" ."
-    TurningOff()
-    print("Reiniciando el programa...")
-    python=sys.executable  # Obtiene el intérprete de Python actual
-    os.execv(python, [python] + sys.argv)
-
+# Turns Off the Looper and exits
 def TurningOff():
     os.system ("sudo -H -u raspi killall fluidsynth")
-    #fs.delete()
     print("Closing FluidSynth")
     time.sleep(1)
     client.deactivate()
@@ -134,14 +127,14 @@ def PowerOffLeds():
     PLAYLEDR.off()
     PLAYLEDG.off()
 
-#Change Mode
+##Behavior when MODEBUTTON is pressed
 def Change_Mode():
-    global LoopNumber, Bank, Mode, mode_was_held
+    global Mode, mode_was_held
     if not mode_was_held:
         if Mode == 3:
-            Mode=0
+            Mode = 0
         elif Mode == 0:
-            Mode=1
+            Mode = 1
             PowerOffLeds()
             display.value=((str(Bank))[-1]+".")
             print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
@@ -150,34 +143,42 @@ def Change_Mode():
         print('----------= Changed to Mode=', str(Mode),'\n')
     mode_was_held=False
 
+#Behavior when MODEBUTTON is held
+def restart_program():
+    display.value=" ."
+    TurningOff()
+    print("Reiniciando el programa...")
+    python=sys.executable  # Obtiene el intérprete de Python actual
+    os.execv(python, [python] + sys.argv)
+
 #Behavior when PREVBUTTON is pressed
 def Prev_Button_Press():
     global LoopNumber, Preset, prev_was_held
     if not prev_was_held:
         if Mode == 0 and setup_donerecording:
             if LoopNumber == 0:
-                LoopNumber=9
+                LoopNumber = 9
             else:
-                LoopNumber=LoopNumber-1
+                LoopNumber -= 1
             print('-= Prev Loop =---> ', LoopNumber,'\n')
         if Mode == 1:
             if Preset >= 1:
-                Preset=Preset - 1
+                Preset -= 1
                 ChangePreset()
     prev_was_held=False
 
 #Behavior when PREVBUTTON is held
 def Prev_Button_Held():
-    global Bank, prev_was_held
+    global Bank, prev_was_held, DispData
     if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume >= 0.1:
-            loops[LoopNumber].volume=loops[LoopNumber].volume - 0.1
+        if loops[LoopNumber].volume >= 1:
+            loops[LoopNumber].volume -= 1
             print('Volume Decreased=', loops[LoopNumber].volume,'\n')
-            display.value=((str(loops[LoopNumber].volume))[-1])
+            DispData=str(loops[LoopNumber].volume)
             debug()
     if Mode == 1:
         if Bank >= 1:
-            Bank=Bank -1
+            Bank -= 1
             ChangeBank()
     prev_was_held=True
 
@@ -193,22 +194,22 @@ def Next_Button_Press():
             print('-= Next Loop =---> ', LoopNumber,'\n')
         if Mode == 1:
             if Preset < 125:
-                Preset=Preset + 1
+                Preset += 1
                 ChangePreset()
     next_was_held=False
 
 #Behavior when NEXTBUTTON is held
 def Next_Button_Held():
-    global Bank, next_was_held
+    global Bank, next_was_held, DispData
     if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume <= 1.4:
-            loops[LoopNumber].volume=loops[LoopNumber].volume + 0.1
+        if loops[LoopNumber].volume <= 9:
+            loops[LoopNumber].volume += 1
             print('Volume Increased=', loops[LoopNumber].volume,'\n')
-            display.value=((str(loops[LoopNumber].volume))[-1])
+            DispData=str(loops[LoopNumber].volume)
             debug()
     if Mode == 1:
-        if Bank < len(sf2_list)-1:
-            Bank=Bank + 1
+        if Bank < len(sf2_list) - 1:
+            Bank += 1
             ChangeBank()
     next_was_held=True
 
@@ -222,13 +223,13 @@ def Mute_Button_Pressed():
     if setup_donerecording:
         if not play_was_held:
             loops[LoopNumber].toggle_mute()
-        play_was_held=False
+        play_was_held = False
 
 #Behavior when MUTEBUTTON is held
 def Mute_Button_Held():
     global play_was_held
     if setup_donerecording:
-        play_was_held=True
+        play_was_held = True
         loops[LoopNumber].toggle_solo()
 
 #Behavior when UNDOBUTTON is pressed
@@ -238,19 +239,18 @@ def Undo_Button_Pressed():
         if setup_donerecording:
             loops[LoopNumber].undo()
         else:
-            loops[LoopNumber].is_recording=False
+            loops[LoopNumber].is_recording = False
             loops[LoopNumber].clear()
     undo_was_held=False
 
 #Behavior when UNDOBUTTON is held
 def Undo_Button_Held():
     global undo_was_held
-    undo_was_held=True
+    undo_was_held = True
     loops[LoopNumber].clear()
 
 # Change the Preset
 def ChangePreset():
-    display.value=((str(Preset))[-1]+".")
     txt="echo 'prog 0 "+str(Preset)+"' > /dev/tcp/localhost/9988"
     write2cons(txt)
     time.sleep(0.1)
@@ -258,15 +258,15 @@ def ChangePreset():
 
 # Change the Bank
 def ChangeBank():
-    global Counter, Preset
-    display.value=((str(Bank))[-1]+".")
-    txt="echo 'unload "+str(Counter)+"' > /dev/tcp/localhost/9988"
+    global BankCounter, Preset, DispData
+    DispData = str(Bank)[-1] + "."
+    txt="echo 'unload "+str(BankCounter)+"' > /dev/tcp/localhost/9988"
     write2cons(txt)
     time.sleep(0.1)
     txt="echo 'load ./sf2/"+str(sf2_list[Bank])+"' > /dev/tcp/localhost/9988"
     write2cons(txt)
-    Counter=Counter + 1
-    Preset=0
+    BankCounter += 1
+    Preset = 0
     ChangePreset()
     print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
@@ -305,8 +305,7 @@ def is_jack_server_running():
         client=jack.Client("CheckJackServer", no_start_server=True)
         client.close()  # Close cliente inmediately
         return True
-    except jack.JackError:
-        # Si ocurre un JackError, significa que el servidor no está activo
+    except jack.JackError: # If JackError happens, ther server is NOT active
         return False
 
 #Defining functions of all the buttons during jam session...
@@ -329,7 +328,7 @@ while Mode == 3:
     try:
         with open("/proc/asound/cards", "r") as f:
             content=f.read().strip()
-        # Check if "H5" is in the list of sound cards
+        # Check if " INDEVICE [" is in the list of sound cards
         if (" "+str(INDEVICE)+" [") in content:
             Mode=0
             print("Sound card number:",str(INDEVICE)," detected\n")
@@ -465,7 +464,6 @@ class audioloop:
 
     #Restarting is True only when readp==0 and the loop is initialized, and is only checked after recording the Master Loop (0)
     def is_restarting(self):
-        #print('-= Is Restarting =-')
         if not self.initialized:
             return False
         if self.readp == 0:
@@ -500,7 +498,6 @@ class audioloop:
             PLAYLEDR.on()
             PLAYLEDG.off()
 
-        #return(self.main_audio[tmp, :] + self.dub_audio[tmp, :])
         return(self.main_audio[tmp, :])
 
     #dub() overdubs an incoming buffer of audio to the loop at writep
@@ -616,9 +613,17 @@ class audioloop:
 loops=[audioloop() for _ in range(10)]
 
 def debug():
-    print('  |init\t|isrec\t|iswait\t|isplay\t|iswaiP\t|iswaiM\t|Solo\t|Vol')
+    print('   |init|isrec\t|iswait\t|isplay\t|iswaiP\t|iswaiM\t|Solo\t|Vol')
     for i in range(9):
-        print(i, ' |', int(loops[i].initialized), '\t|', int(loops[i].is_recording), '\t|', int(loops[i].is_waiting), '\t|', int(loops[i].is_playing), '\t|', int(loops[i].is_waiting_play), '\t|', int(loops[i].is_waiting_mute), '\t|', int(loops[i].is_solo), '\t|', loops[i].volume)
+        print(i, ' |',
+              int(loops[i].initialized), '\t|',
+              int(loops[i].is_recording), '\t|',
+              int(loops[i].is_waiting), '\t|',
+              int(loops[i].is_playing), '\t|',
+              int(loops[i].is_waiting_play), '\t|',
+              int(loops[i].is_waiting_mute), '\t|',
+              int(loops[i].is_solo), '\t|',
+              round(loops[i].volume,1))
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
     print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
     print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
@@ -661,8 +666,19 @@ def update_volume(): #Not used
 
 #show_status() checks which loops are recording/playing and lights up LEDs accordingly
 def show_status():
-    if Mode == 0:
-        display.value=str(LoopNumber)
+    global DispData, dispcount
+    if DispData == "":
+        if Mode == 0:
+            display.value = str(LoopNumber)
+        elif Mode == 1:
+            display.value = str(Preset)[-1] + "."
+    else:
+        if dispcount <= 4:
+            display.value = DispData
+            dispcount += 1
+        else:
+            dispcount = 0
+            DispData = ""
 
     if loops[LoopNumber].is_recording:
         RECLEDR.on()
@@ -697,16 +713,16 @@ def looping_callback(frames):
 
     # Waits 4 seconds aprox. only the First_Run to allow all the jack connections be finished
     if First_Run < (25000/RATE*CHUNK):
-        First_Run=First_Run+1
+        First_Run += 1
         print(First_Run, end='\r')
         return
 
     # Read input buffer from JACK
-    current_rec_buffer=np.right_shift(float2pcm(input_port.get_array()),0) #some input attenuation for overdub headroom purposes
+    current_rec_buffer=float2pcm(input_port.get_array()) # Capture current input jack buffer
 
     # Setup: First Recording
     if not setup_donerecording: #if setup is not done i.e. if the master loop hasn't been recorded to yet
-        loops[0].is_waiting=1
+        loops[0].is_waiting = 1
 
         if setup_is_recording: #if setup is currently recording, that recording action happens in the following lines
             loops[0].add_buffer(current_rec_buffer) #otherwise append incoming audio to master loop, increment LENGTH and continue
@@ -735,22 +751,22 @@ def looping_callback(frames):
 
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:]=np.multiply((
-        loops[0].read().astype(np.int32)*loops[0].volume+
-        loops[1].read().astype(np.int32)*loops[1].volume+
-        loops[2].read().astype(np.int32)*loops[2].volume+
-        loops[3].read().astype(np.int32)*loops[3].volume+
-        loops[4].read().astype(np.int32)*loops[4].volume+
-        loops[5].read().astype(np.int32)*loops[5].volume+
-        loops[6].read().astype(np.int32)*loops[6].volume+
-        loops[7].read().astype(np.int32)*loops[7].volume+
-        loops[8].read().astype(np.int32)*loops[8].volume+
-        loops[9].read().astype(np.int32)*loops[9].volume
+        loops[0].read().astype(np.int32)*loops[0].volume/10+
+        loops[1].read().astype(np.int32)*loops[1].volume/10+
+        loops[2].read().astype(np.int32)*loops[2].volume/10+
+        loops[3].read().astype(np.int32)*loops[3].volume/10+
+        loops[4].read().astype(np.int32)*loops[4].volume/10+
+        loops[5].read().astype(np.int32)*loops[5].volume/10+
+        loops[6].read().astype(np.int32)*loops[6].volume/10+
+        loops[7].read().astype(np.int32)*loops[7].volume/10+
+        loops[8].read().astype(np.int32)*loops[8].volume/10+
+        loops[9].read().astype(np.int32)*loops[9].volume/10
     ), output_volume, out=None, casting='unsafe').astype(np.int16)
 
-    #current buffer will serve as previous in next iteration
+    # Current buffer will serve as previous in next iteration
     prev_rec_buffer=np.copy(current_rec_buffer)
 
-    #play mixed audio and move on to next iteration
+    # Play mixed audio and move on to next iteration
     output_port.get_array()[:]=pcm2float(play_buffer[:])
 
 @client.set_shutdown_callback
@@ -805,22 +821,6 @@ with client:
             print('---FluidSynth Jack Starting---','\n')
             time.sleep(3)
             connect_fluidsynth_to_input()
-
-            # Inicializa el sintetizador con las configuraciones
-            #fs=fluidsynth.Synth()
-            #fs.setting("audio.driver", 'jack')
-            #fs.setting("midi.driver", 'jack')
-            #fs.setting("audio.jack.autoconnect", True)
-            #fs.setting("shell.port", 9988)
-            #fs.setting("synth.sample-rate", 48000.000)
-            #fs.delete()
-            #fs=fluidsynth.Synth()
-            #cmd="./sf2/"+str(sf2_list[Preset])
-            #print(cmd)
-            #sfid=fs.sfload(cmd)
-            #time.sleep(3)
-            #fs.program_select(0, sfid, 0, 0)
-            #print('---FluidSynth load sf2---','\n')
 
         while True:
             show_status()
