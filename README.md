@@ -26,11 +26,12 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
   - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
   - **Rec Button:**
     - Press to Record. Press again to Stop Recording (Looper Mode)
+    - If you want to stop and discard recording: Press Mute Button
   - **Mute/Solo Button:**
     - When Pressed: Mute selected Track. Press again to UnMute (Looper Mode)
     - When Held: Solo selected Track. Hold again to UnSolo (Looper Mode)
   - **Undo/Clear Button:**
-    - When Presses: Undo selected Track  (Looper Mode)
+    - When Pressed: If playing, Undo selected Track. If recording: Stops recording and reset Track
     - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
   - **Prev Button:**
     - When Pressed: Jumps to the prev track (Looper Mode) / Decrease 1 preset number (Looper Mode)
@@ -39,8 +40,8 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
     - When Pressed: Jumps to the next track (Looper Mode) / Increase 1 preset number (Looper Mode)
     - When Held: Increase 1 bank numbers (FluidSynth Mode) / Increase Volume of selected Track (Looper Mode)
 - **7 segments Display**
-  - Displays the Track number (0-9) (Looper Mode)
-  - Displays the last digit of GM selected preset (FluidSynth Mode)
+  - Looper Mode: Displays the Track number (0-9) or the volume of the selected Track (0-9)
+  - FluidSynth Mode: Displays the last digit of selected Preset or the selected Bank
 - **4 Leds**, 1 Red + 1 Green Leds on Rec and Mute/Solo Buttons:
   - Rec Button:
     - Yellow (Red+Green): When the Track is waiting to Record instantaneously (in case of Master Track 0) or when restarting the Loop

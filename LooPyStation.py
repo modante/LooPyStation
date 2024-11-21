@@ -712,7 +712,7 @@ def looping_callback(frames):
     global LENGTH, First_Run
 
     # Waits 4 seconds aprox. only the First_Run to allow all the jack connections be finished
-    if First_Run < (25000/RATE*CHUNK):
+    if First_Run < (20000/RATE*CHUNK):
         First_Run += 1
         print(First_Run, end='\r')
         return
@@ -782,16 +782,16 @@ with client:
         # Registering Ins/Outs Ports
         input_port=client.inports.register("input_1")
         print('----- Jack Client In Port Registered-----\n', str(input_port), '\n')
-        time.sleep(0.5)
+        time.sleep(0.2)
         output_port=client.outports.register("output_1")
         print('----- Jack Client Out Port Registered-----\n', str(output_port),'\n')
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         #time.sleep(2)
         all_captures_to_input()
-        time.sleep(0.5)
+        time.sleep(0.2)
         output_to_all_playbacks()
-        time.sleep(0.5)
+        time.sleep(0.2)
 
         # Get MIDI Capture Ports
         outMIDIports=client.get_ports(is_midi=True, is_output=True)
