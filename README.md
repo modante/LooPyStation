@@ -1,6 +1,6 @@
 # LooPyStation
 
-10 Tracks Looper for Raspberry Pi with Mute, Solo, Undo, Clear and Volume functions and FluidSynth (a soundfont sample player) running at the same time, connected into looper and controlled with the footswitches.
+10 Tracks Looper for Raspberry Pi with Mute, Solo, Clear and Volume functions and FluidSynth (a soundfont sample player) running at the same time, connected into looper and controlled with the footswitches.
 To be used with any USB Sound Card and USB MIDI Keyboard (I use it with a Zoom H5 handy recorder and Evolution MK-461 MIDI Keyboard).
 
 Inspired on the great Raspi Looper from RandomVertebrate https://github.com/RandomVertebrate/raspi-looper
@@ -9,7 +9,6 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
   - **10 Tracks** that can be selected with the Prev and Next buttons
   - 8-Segments display to show track number and bank/preset of Fluidsynth
   - **Mute/UnMute** & **Solo/Unsolo** per track synced with the starting of loop
-  - **Undo** to the last recording (no overdubbing)
   - **Clear** of the selected track or all the tracks (when clear is applied on track 0)
   - Button to change **Mode** from Looper (without dot) to FluidSynth control
   - **Volume** per track. Starts on 0.7 (from 0.0 to 1.0)
@@ -30,8 +29,8 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
   - **Mute/Solo Button:**
     - When Pressed: Mute selected Track. Press again to UnMute (Looper Mode)
     - When Held: Solo selected Track. Hold again to UnSolo (Looper Mode)
-  - **Undo/Clear Button:**
-    - When Pressed: If playing, Undo selected Track. If recording: Stops recording and reset Track
+  - **Stop/Clear Button:**
+    - When Pressed: Stops recording and reset Track
     - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
   - **Prev Button:**
     - When Pressed: Jumps to the prev track (Looper Mode) / Decrease 1 preset number (Looper Mode)
@@ -66,6 +65,7 @@ Video: Fist sesions of Ephemeral Songs https://video.anartist.org/w/d7WA2y3ncZWz
 ![imagen](https://github.com/user-attachments/assets/c0264a8e-3662-4eb9-855b-bd9bf15feecf)
 
 ToDo:
+- Recording session to wav or export the complete session (or both)
 - Document switches, connections and wiring
 - Make a video to explain how it works
 

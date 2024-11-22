@@ -174,7 +174,7 @@ def Prev_Button_Held():
         if loops[LoopNumber].volume >= 1:
             loops[LoopNumber].volume -= 1
             print('Volume Decreased=', loops[LoopNumber].volume,'\n')
-            DispData=str(loops[LoopNumber].volume)
+            DispData = str(loops[LoopNumber].volume)
             debug()
     if Mode == 1:
         if Bank >= 1:
@@ -236,11 +236,10 @@ def Mute_Button_Held():
 def Undo_Button_Pressed():
     global undo_was_held
     if not undo_was_held:
-        if setup_donerecording:
-            loops[LoopNumber].undo()
-        else:
-            loops[LoopNumber].is_recording = False
+        if not setup_donerecording:
             loops[LoopNumber].clear()
+        else:
+            loops[LoopNumber].undo()
     undo_was_held=False
 
 #Behavior when UNDOBUTTON is held
@@ -361,34 +360,29 @@ class audioloop:
         self.initialized=False
         self.length_factor=1
         self.length=0
-        #self.main_audio and self.dub_audio contain audio data in arrays of CHUNKs.
+        #self.main_audio contain audio data in arrays of CHUNKs.
         self.main_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-        #self.dub_audio contains the latest recorded dub. Clearing this achieves undo.
-        self.dub_audio=np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
         self.readp=0
         self.writep=0
         self.is_recording=False
         self.is_playing=False
+        self.is_waiting_rec=False
         self.is_waiting_play=False
         self.is_waiting_mute=False
         self.is_solo=False
-        self.is_waiting=False
         self.volume=OrigVolume
         self.pointer_last_buffer_recorded=0 #index of last buffer added
         self.preceding_buffer=np.zeros([CHUNK], dtype=np.int16)
-        self.dub_ratio=1.0
 
-    #increment_pointers() increments pointers and, when restarting while recording, advances dub ratio
+    #increment_pointers() increments pointers and, when restarting while recording
     def increment_pointers(self):
         if self.readp == self.length - 1:
             self.readp=0
             print(' '*60, end='\r')
-            if self.is_recording:
-                self.dub_ratio=self.dub_ratio * 0.9
-                #print('Self dub ratio=',self.dub_ratio,'\n')
         else:
-            self.readp=self.readp + 1
-        progress=(loops[0].readp / (loops[0].length + 1))*41
+            self.readp += 1
+
+        progress = (loops[0].readp / (loops[0].length + 1))*41
         self.writep=(self.writep + 1) % self.length
         print('#'*int(progress), end='\r')
 
@@ -412,21 +406,21 @@ class audioloop:
         self.readp=(self.writep + LATENCY) % self.length
         self.initialized=True
         self.is_playing=True
-        self.increment_pointers()
+        #self.increment_pointers()
         debug()
 
     #add_buffer() appends a new buffer unless loop is filled to MAXLENGTH
     #expected to only be called before initialization
     def add_buffer(self, data):
+        global LENGTH
         if self.length >= (MAXLENGTH - 1):
             self.length=0
             print('loop full')
-            if LoopNumber==0:
-                setup_donerecording=True
-                setup_is_recording=False
             return
         self.main_audio[self.length, :]=np.copy(data) #Add to main_audio the buffer entering through Jack
         self.length=self.length + 1 #Increase the length of the loop
+        if not setup_donerecording:
+            LENGTH += 1
 
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
@@ -475,6 +469,14 @@ class audioloop:
     #   initialized but muted: Just increment pointers
     #   initialized and playing: Read audio from the loop and increment pointers
     def read(self):
+        if loops[0].is_restarting():  # Turns On the Red Led of PLAYBUTTON to mark the starting of Master Loop
+            PLAYLEDR.on()
+            PLAYLEDG.off()
+            if self.is_waiting_rec:  # If a Track is_waiting_rec marks Track to Rec and erases waiting state
+                self.is_recording = True
+                self.is_waiting_rec = False
+                print('-=Start Recording Track ', LoopNumber, '\n')
+
         if not self.initialized:
             return(silence)
 
@@ -486,7 +488,6 @@ class audioloop:
             self.is_waiting_mute=False
             self.is_playing=False
 
-
         if not self.is_playing or self.is_waiting_play:
             self.increment_pointers()
             return(silence)
@@ -494,25 +495,7 @@ class audioloop:
         tmp=self.readp
         self.increment_pointers()
 
-        if loops[0].readp == 0:
-            PLAYLEDR.on()
-            PLAYLEDG.off()
-
         return(self.main_audio[tmp, :])
-
-    #dub() overdubs an incoming buffer of audio to the loop at writep
-    #   at writep:
-    #   first, the buffer from dub_audio is mixed into main_audio
-    #   next, the buffer in dub_audio is overwritten with the incoming buffer
-    def dub(self, data, fade_in=False, fade_out=False):
-        if not self.initialized:
-            return
-        datadump=np.copy(data)
-        #self.main_audio[self.writep, :]=self.main_audio[self.writep, :] * 0.9 + self.dub_audio[self.writep, :] * self.dub_ratio
-        #self.dub_audio[self.writep, :]=datadump[:]
-        self.dub_audio[self.writep, :]=self.main_audio[self.writep, :]
-        self.main_audio[self.writep, :]=datadump[:]
-        debug()
 
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
     def clear(self):
@@ -520,9 +503,11 @@ class audioloop:
         if LoopNumber == 0:
             for loop in loops:
                 loop.initialized=False
+                loop.is_waiting_rec=False
+                loop.is_waiting_play=False
+                loop.is_waiting_mute=False
                 loop.is_playing=False
                 loop.is_recording=False
-                loop.is_waiting=False
                 loop.length_factor=1
                 loop.length=0
                 loop.volume=OrigVolume
@@ -530,7 +515,6 @@ class audioloop:
                 loop.writep = 0
                 loop.pointer_last_buffer_recorded = 0
                 loop.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-                loop.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
                 loop.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
             setup_donerecording=False
             setup_is_recording=False
@@ -540,7 +524,9 @@ class audioloop:
             self.initialized=False
             self.is_playing=False
             self.is_recording=False
-            self.is_waiting=False
+            self.is_waiting_rec = False
+            self.is_waiting_play = False
+            self.is_waiting_mute = False
             self.length_factor=1
             self.length=0
             self.volume=OrigVolume
@@ -548,36 +534,18 @@ class audioloop:
             self.writep=0
             self.pointer_last_buffer_recorded = 0
             self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-            self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
             self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
             print('-=Clear=-','\n')
         debug()
 
-    #undo() resets dub_audio to silence
+    # Stops Recording and Clear Track
     def undo(self):
-        if not self.is_recording:
-            if self.initialized:
-                self.dub_audio, self.main_audio=self.main_audio, self.dub_audio
-                print('-=Undo=-', '\n')
-        else:
-            if not self.initialized:
-                self.clear()
-            else:
-                self.is_recording = False
-                self.is_waiting = False
-                self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+        if self.is_recording and not self.initialized:
+            self.clear()
             print('-=Undo Recording=-', '\n')
         debug()
 
-    #start recording
-    def start_recording(self, previous_buffer):
-        print('-=Start Recording Track ', LoopNumber,'\n')
-        self.is_recording=True
-        self.is_waiting=False
-        self.preceding_buffer=np.copy(previous_buffer)
-
     #set_recording() either starts or stops recording
-    #   if initialized and recording, stop recording (dubbing)
     #   if uninitialized and recording, stop recording (appending) and initialize
     #   if initialized and not recording, set as "waiting to record"
     def set_recording(self):
@@ -588,7 +556,6 @@ class audioloop:
         #if chosen track is currently recording, flag it
         if self.is_recording:
             already_recording=True
-
             #turn off recording
             if not self.initialized:
                 self.initialize()
@@ -596,17 +563,16 @@ class audioloop:
                     setup_is_recording=False
                     setup_donerecording=True
                     print('---Master Track Recorded---','\n')
-        self.is_recording = False
-        self.is_waiting = False
+            self.is_recording = False
+            self.is_waiting_rec = False
 
         #unless flagged, schedule recording. If chosen track was recording, then stop recording
-        #like a toggle but with delayed enabling and instant disabling
         if not already_recording:
             if LoopNumber == 0:
                 self.is_recording=True
                 setup_is_recording=True
             else:
-                self.is_waiting=True
+                self.is_waiting_rec=True
         debug()
 
 #defining ten audio loops. loops[0] is the master loop.
@@ -618,7 +584,7 @@ def debug():
         print(i, ' |',
               int(loops[i].initialized), '\t|',
               int(loops[i].is_recording), '\t|',
-              int(loops[i].is_waiting), '\t|',
+              int(loops[i].is_waiting_rec), '\t|',
               int(loops[i].is_playing), '\t|',
               int(loops[i].is_waiting_play), '\t|',
               int(loops[i].is_waiting_mute), '\t|',
@@ -645,16 +611,6 @@ def update_volume(): #Not used
             + loops[7].main_audio.astype(np.int32)[:][:]
             + loops[8].main_audio.astype(np.int32)[:][:]
             + loops[9].main_audio.astype(np.int32)[:][:]
-            + loops[0].dub_audio.astype(np.int32)[:][:]
-            + loops[1].dub_audio.astype(np.int32)[:][:]
-            + loops[2].dub_audio.astype(np.int32)[:][:]
-            + loops[3].dub_audio.astype(np.int32)[:][:]
-            + loops[4].dub_audio.astype(np.int32)[:][:]
-            + loops[5].dub_audio.astype(np.int32)[:][:]
-            + loops[6].dub_audio.astype(np.int32)[:][:]
-            + loops[7].dub_audio.astype(np.int32)[:][:]
-            + loops[8].dub_audio.astype(np.int32)[:][:]
-            + loops[9].dub_audio.astype(np.int32)[:][:]
         )
     )
     print('     peak=' + str(peak))
@@ -667,12 +623,13 @@ def update_volume(): #Not used
 #show_status() checks which loops are recording/playing and lights up LEDs accordingly
 def show_status():
     global DispData, dispcount
+    # If Prev / Next Buttons are Pressed shows selected LoopNumber / Preset (depends of Mode)
     if DispData == "":
         if Mode == 0:
             display.value = str(LoopNumber)
         elif Mode == 1:
             display.value = str(Preset)[-1] + "."
-    else:
+    else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
         if dispcount <= 4:
             display.value = DispData
             dispcount += 1
@@ -683,7 +640,7 @@ def show_status():
     if loops[LoopNumber].is_recording:
         RECLEDR.on()
         RECLEDG.off()
-    elif loops[LoopNumber].is_waiting:
+    elif loops[LoopNumber].is_waiting_rec:
         RECLEDR.on()
         RECLEDG.on()
     elif setup_donerecording:
@@ -703,51 +660,31 @@ def show_status():
 play_buffer=np.zeros([CHUNK], dtype=np.int16) #Buffer to hold mixed audio from all tracks
 silence=np.zeros([CHUNK], dtype=np.int16) #A buffer containing silence
 current_rec_buffer=np.zeros([CHUNK], dtype=np.int16) #Buffer to hold in_data
-prev_rec_buffer=np.zeros([CHUNK], dtype=np.int16) #While looping, prev_rec_buffer keeps track of the audio buffer recorded before the current one
 
 # Callback de procesamiento de audio
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer, prev_rec_buffer
+    global play_buffer, current_rec_buffer
     global LENGTH, First_Run
 
-    # Waits 4 seconds aprox. only the First_Run to allow all the jack connections be finished
-    if First_Run < (20000/RATE*CHUNK):
+    # Waits 3 seconds aprox. only the First_Run to allow all the jack connections be finished
+    if First_Run < (12000/RATE*CHUNK):
         First_Run += 1
         print(First_Run, end='\r')
         return
 
     # Read input buffer from JACK
-    current_rec_buffer=float2pcm(input_port.get_array()) # Capture current input jack buffer
+    current_rec_buffer=float2pcm(input_port.get_array()) # Capture current input jack buffer after converting Float2PCM
 
     # Setup: First Recording
     if not setup_donerecording: #if setup is not done i.e. if the master loop hasn't been recorded to yet
-        loops[0].is_waiting = 1
+        loops[0].is_waiting_rec = 1
 
-        if setup_is_recording: #if setup is currently recording, that recording action happens in the following lines
-            loops[0].add_buffer(current_rec_buffer) #otherwise append incoming audio to master loop, increment LENGTH and continue
-            LENGTH += 1
-            return
-        else: #if setup not done and not currently happening then just wait
-            return #execution ony reaches here if setup (first loop record and set LENGTH) finished.
-
-    #when master loop restarts, start recording on any other tracks that are waiting
-    if loops[0].is_restarting():
-        #update_volume()
-        for loop in loops:
-            if loop.is_waiting:
-                loop.start_recording(prev_rec_buffer)
-                print('---=Recording Track number:', LoopNumber, '=---','\n')
-
-    #if a loop is recording, check initialization and accordingly append or overdub
+    #if a loop is recording, check initialization and accordingly append
     for loop in loops:
         if loop.is_recording:
-            if loop.initialized:
-                print('-=OverDub=-', end='\r')
-                loop.dub(current_rec_buffer)
-            else:
-                print('-=Append=-', end='\r')
-                loop.add_buffer(current_rec_buffer)
+            print('--------------------------------------------------=Recording=-', end='\r')
+            loop.add_buffer(current_rec_buffer)
 
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:]=np.multiply((
@@ -762,9 +699,6 @@ def looping_callback(frames):
         loops[8].read().astype(np.int32)*loops[8].volume/10+
         loops[9].read().astype(np.int32)*loops[9].volume/10
     ), output_volume, out=None, casting='unsafe').astype(np.int16)
-
-    # Current buffer will serve as previous in next iteration
-    prev_rec_buffer=np.copy(current_rec_buffer)
 
     # Play mixed audio and move on to next iteration
     output_port.get_array()[:]=pcm2float(play_buffer[:])
