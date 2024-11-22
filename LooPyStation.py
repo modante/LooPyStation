@@ -60,8 +60,8 @@ PLAYLEDR=(LED(26, active_high=False))
 PLAYLEDG=(LED(20, active_high=False))
 RECLEDR=(LED(0, active_high=False))
 RECLEDG=(LED(1, active_high=False))
-PLAYBUTTON=(Button(15, bounce_time=debounce_length))
 RECBUTTON=(Button(18, bounce_time=debounce_length))
+PLAYBUTTON=(Button(15, bounce_time=debounce_length))
 CLEARBUTTON=(Button(17, bounce_time=debounce_length))
 PREVBUTTON=(Button(5, bounce_time=debounce_length))
 NEXTBUTTON=(Button(12, bounce_time=debounce_length))
@@ -236,10 +236,7 @@ def Mute_Button_Held():
 def Clear_Button_Pressed():
     global clear_was_held
     if not clear_was_held:
-        if not setup_donerecording:
-            loops[LoopNumber].clear()
-        else:
-            loops[LoopNumber].clear()
+        loops[LoopNumber].undo()
     clear_was_held=False
 
 #Behavior when CLEARBUTTON is held
@@ -497,6 +494,12 @@ class audioloop:
 
         return(self.main_audio[tmp, :])
 
+    def undo(self):
+        if self.is_recording:
+            self.clear_track()
+            print('-=Undo=-','\n')
+        debug()
+
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
     def clear(self):
         global setup_donerecording, setup_is_recording, LENGTH
@@ -521,29 +524,25 @@ class audioloop:
             LENGTH=0
             print('-=Cleared ALL=-','\n')
         else:
-            self.initialized=False
-            self.is_playing=False
-            self.is_recording=False
-            self.is_waiting_rec = False
-            self.is_waiting_play = False
-            self.is_waiting_mute = False
-            self.length_factor=1
-            self.length=0
-            self.volume=OrigVolume
-            self.readp=0
-            self.writep=0
-            self.pointer_last_buffer_recorded = 0
-            self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-            self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
-            print('-=Clear=-','\n')
+            self.clear_track()
         debug()
 
-    # Stops Recording and Clear Track
-    def clear(self):
-        if self.is_recording and not self.initialized:
-            self.clear()
-            print('-=Clear Recording=-', '\n')
-        debug()
+    def clear_track(self):
+        self.initialized = False
+        self.is_waiting_rec = False
+        self.is_waiting_play = False
+        self.is_waiting_mute = False
+        self.is_playing = False
+        self.is_recording = False
+        self.length_factor = 1
+        self.length = 0
+        self.volume = OrigVolume
+        self.readp = 0
+        self.writep = 0
+        self.pointer_last_buffer_recorded = 0
+        self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+        self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
+        print('-=Clear Track=-', '\n')
 
     #set_recording() either starts or stops recording
     #   if uninitialized and recording, stop recording (appending) and initialize
@@ -594,32 +593,6 @@ def debug():
     print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
     print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
 
-#update output volume to prevent mixing distortion due to sample overflow
-#slow to run, so should be called on a different thread (e.g. a button callback function)
-def update_volume(): #Not used
-    print('---= Update Volume =---','\n')
-    global output_volume
-    peak=np.max(
-        np.abs(
-            loops[0].main_audio.astype(np.int32)[:][:]
-            + loops[1].main_audio.astype(np.int32)[:][:]
-            + loops[2].main_audio.astype(np.int32)[:][:]
-            + loops[3].main_audio.astype(np.int32)[:][:]
-            + loops[4].main_audio.astype(np.int32)[:][:]
-            + loops[5].main_audio.astype(np.int32)[:][:]
-            + loops[6].main_audio.astype(np.int32)[:][:]
-            + loops[7].main_audio.astype(np.int32)[:][:]
-            + loops[8].main_audio.astype(np.int32)[:][:]
-            + loops[9].main_audio.astype(np.int32)[:][:]
-        )
-    )
-    print('     peak=' + str(peak))
-    if peak > SAMPLEMAX:
-        output_volume=SAMPLEMAX / peak
-    else:
-        output_volume=1
-    print(' --- output_volume=' + str(output_volume))
-
 #show_status() checks which loops are recording/playing and lights up LEDs accordingly
 def show_status():
     global DispData, dispcount
@@ -668,7 +641,7 @@ def looping_callback(frames):
     global LENGTH, First_Run
 
     # Waits 3 seconds aprox. only the First_Run to allow all the jack connections be finished
-    if First_Run < (12000/RATE*CHUNK):
+    if First_Run < (18000/RATE*CHUNK):
         First_Run += 1
         print(First_Run, end='\r')
         return
