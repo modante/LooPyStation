@@ -29,7 +29,7 @@ setup_is_recording=False #set to True when track 1 recording button is first pre
 setup_donerecording=False #set to true when first track 1 recording is done
 rec_was_held=False
 play_was_held=False
-undo_was_held=False
+clear_was_held=False
 prev_was_held=False
 next_was_held=False
 mode_was_held=False
@@ -62,14 +62,14 @@ RECLEDR=(LED(0, active_high=False))
 RECLEDG=(LED(1, active_high=False))
 PLAYBUTTON=(Button(15, bounce_time=debounce_length))
 RECBUTTON=(Button(18, bounce_time=debounce_length))
-UNDOBUTTON=(Button(17, bounce_time=debounce_length))
+CLEARBUTTON=(Button(17, bounce_time=debounce_length))
 PREVBUTTON=(Button(5, bounce_time=debounce_length))
 NEXTBUTTON=(Button(12, bounce_time=debounce_length))
 MODEBUTTON=(Button(6, bounce_time=debounce_length))
 
 RECBUTTON.hold_time=0.5
 PLAYBUTTON.hold_time=0.5
-UNDOBUTTON.hold_time=0.5
+CLEARBUTTON.hold_time=0.5
 PREVBUTTON.hold_time=0.5
 NEXTBUTTON.hold_time=0.5
 MODEBUTTON.hold_time=3
@@ -232,20 +232,20 @@ def Mute_Button_Held():
         play_was_held = True
         loops[LoopNumber].toggle_solo()
 
-#Behavior when UNDOBUTTON is pressed
-def Undo_Button_Pressed():
-    global undo_was_held
-    if not undo_was_held:
+#Behavior when CLEARBUTTON is pressed
+def Clear_Button_Pressed():
+    global clear_was_held
+    if not clear_was_held:
         if not setup_donerecording:
             loops[LoopNumber].clear()
         else:
-            loops[LoopNumber].undo()
-    undo_was_held=False
+            loops[LoopNumber].clear()
+    clear_was_held=False
 
-#Behavior when UNDOBUTTON is held
-def Undo_Button_Held():
-    global undo_was_held
-    undo_was_held = True
+#Behavior when CLEARBUTTON is held
+def Clear_Button_Held():
+    global clear_was_held
+    clear_was_held = True
     loops[LoopNumber].clear()
 
 # Change the Preset
@@ -316,8 +316,8 @@ MODEBUTTON.when_released=Change_Mode
 MODEBUTTON.when_held=restart_program
 RECBUTTON.when_pressed=Rec_Button_Pressed
 #RECBUTTON.when_held =
-UNDOBUTTON.when_released=Undo_Button_Pressed
-UNDOBUTTON.when_held=Undo_Button_Held
+CLEARBUTTON.when_released=Clear_Button_Pressed
+CLEARBUTTON.when_held=Clear_Button_Held
 PLAYBUTTON.when_released=Mute_Button_Pressed
 PLAYBUTTON.when_held=Mute_Button_Held
 
@@ -539,10 +539,10 @@ class audioloop:
         debug()
 
     # Stops Recording and Clear Track
-    def undo(self):
+    def clear(self):
         if self.is_recording and not self.initialized:
             self.clear()
-            print('-=Undo Recording=-', '\n')
+            print('-=Clear Recording=-', '\n')
         debug()
 
     #set_recording() either starts or stops recording
