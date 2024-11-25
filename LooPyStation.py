@@ -1,4 +1,5 @@
 import jack
+import threading
 import numpy as np
 import time
 import os, sys
@@ -29,11 +30,13 @@ setup_donerecording = False  # Set to true when first track 1 recording is done
 Mode = 3
 Preset = 0
 Bank = 0
-BankCounter = 1
-First_Run = 0
-OrigVolume = 7
+BankCounter = 0
+OrigVolume = 5
 DispData = ""
 dispcount = 0
+first_run = 0
+ti_mer = int(RATE / CHUNK)
+func_name = ""
 
 # Flags for Buttons
 rec_was_held = False
@@ -165,6 +168,7 @@ def Prev_Button_Press():
             else:
                 LoopNumber -= 1
             print('-= Prev Loop =---> ', LoopNumber,'\n')
+            debug()
         if Mode == 1:
             if Preset >= 1:
                 Preset -= 1
@@ -196,6 +200,7 @@ def Next_Button_Press():
             else:
                 LoopNumber = LoopNumber+1
             print('-= Next Loop =---> ', LoopNumber,'\n')
+            debug()
         if Mode == 1:
             if Preset < 125:
                 Preset += 1
@@ -295,6 +300,17 @@ def output_to_all_playbacks():
     for dest in playback:
         client.connect(output_port, dest)
 
+# If a MIDI Capture Port exists, start FluidSynth
+def start_fluidsynth():
+    target_port = 'system:midi_capture_1'
+    if any(port.name == target_port for port in outMIDIports):
+        if len(sf2_list) > 0:
+            soundfont = " ./sf2/" + str(sf2_list[0])
+        else:
+            soundfont = ""
+        os.system("sudo -H -u raspi fluidsynth -isj -a jack -r 48000 -g 0.9 -o 'midi.driver=jack' -o 'audio.jack.autoconnect=True' -o 'shell.port=9988' -o 'synth.cpu-cores=4' -o 'synth.default-soundfont=' &")
+        print('---FluidSynth Jack Starting---', '\n')
+
 #Assign all the Capture ports to Looper Input
 def connect_fluidsynth_to_input():
     client.connect('fluidsynth-midi:left', 'RaspiLoopStation:input_1')
@@ -364,6 +380,7 @@ class audioloop:
         self.length = 0
         #self.main_audio contain audio data in arrays of CHUNKs.
         self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+        self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
         self.readp = 0
         self.writep = 0
         self.is_recording = False
@@ -391,24 +408,28 @@ class audioloop:
     #initialize() raises self.length to closest integer multiple of LENGTH and initializes read and write pointers
     def initialize(self): #It initializes when recording of loop stops. It de-initializes after Clearing.
         if self.initialized:
-            print('     Redundant initialization.','\n')
-            return
-        self.writep = self.length - 1
-        self.pointer_last_buffer_recorded = self.writep
-        self.length_factor = (int((self.length - OVERSHOOT) / LENGTH) + 1)
-        self.length = self.length_factor * LENGTH
-        print('     length ' + str(self.length))
-        print('     last buffer recorded ' + str(self.pointer_last_buffer_recorded))
-        #crossfade
-        fade_out(self.main_audio[self.pointer_last_buffer_recorded]) #fade out the last recorded buffer
-        preceding_buffer_copy = np.copy(self.preceding_buffer)
-        fade_in(preceding_buffer_copy)
-        self.main_audio[self.length - 1, :] += preceding_buffer_copy[:]
-        #audio should be written ahead of where it is being read from, to compensate for input+output latency
-        self.readp = (self.writep + LATENCY) % self.length
-        self.initialized = True
-        self.is_playing = True
-        #self.increment_pointers()
+            self.is_recording = False
+        else:
+            self.writep = self.length - 1
+            self.length_factor = (int((self.length - OVERSHOOT) / LENGTH) + 1)
+            self.length = self.length_factor * LENGTH
+
+            '''
+            #crossfade
+            self.pointer_last_buffer_recorded = self.writep
+            fade_out(self.main_audio[self.pointer_last_buffer_recorded]) #fade out the last recorded buffer
+            preceding_buffer_copy = np.copy(self.preceding_buffer)
+            fade_in(preceding_buffer_copy)
+            self.main_audio[self.length - 1, :] += preceding_buffer_copy[:]
+            '''
+
+            #audio should be written ahead of where it is being read from, to compensate for input+output latency
+            self.readp = (self.writep + LATENCY) % self.length
+            self.initialized = True
+            self.is_playing = True
+            print('     length ' + str(self.length),'\n')
+            print('     last buffer recorded ' + str(self.pointer_last_buffer_recorded),'\n')
+            print('-----= Initialized =-----','\n')
         debug()
 
     #add_buffer() appends a new buffer unless loop is filled to MAXLENGTH
@@ -424,6 +445,13 @@ class audioloop:
         if not setup_donerecording:
             LENGTH += 1
 
+    def dub(self, data):
+        if self.writep < self.length - 1:
+            self.dub_audio[self.writep, :] = self.main_audio[self.writep, :]
+            self.main_audio[self.writep, :] = np.copy(data) #Add to main_audio the buffer entering through Jack
+        elif self.writep == self.length - 1:
+            self.set_recording()
+
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
         if self.initialized:
@@ -432,12 +460,14 @@ class audioloop:
                     self.is_waiting_mute = True
                 else:
                     self.is_waiting_mute = False
+                print('-------------Mute=-', '\n')
             else:
                 if not self.is_waiting_play:
                     self.is_waiting_play = True
                 else:
                     self.is_waiting_play = False
                 self.is_solo = False
+                print('-------------UnMute=-', '\n')
             debug()
 
     def toggle_solo(self):
@@ -471,10 +501,19 @@ class audioloop:
     #   initialized but muted: Just increment pointers
     #   initialized and playing: Read audio from the loop and increment pointers
     def read(self):
-        if loops[0].is_restarting():  # Turns On the Red Led of PLAYBUTTON to mark the starting of Master Loop
+        # Turns On the Red Led of PLAYBUTTON to mark the starting of Master Loop
+        if loops[0].is_restarting():
             PLAYLEDR.on()
             PLAYLEDG.off()
-            if self.is_waiting_rec:  # If a Track is_waiting_rec marks Track to Rec and erases waiting state
+
+        # If a Track is is_waiting_rec, put it to Rec when reaches the end of length
+        if self.is_waiting_rec:
+            if self.initialized:
+                if self.writep == self.length - 1:
+                    self.is_recording = True
+                    self.is_waiting_rec = False
+                    print('-=Start Recording Track ', LoopNumber, '\n')
+            elif loops[0].writep == loops[0].length - 1:
                 self.is_recording = True
                 self.is_waiting_rec = False
                 print('-=Start Recording Track ', LoopNumber, '\n')
@@ -482,11 +521,11 @@ class audioloop:
         if not self.initialized:
             return(silence)
 
-        if self.is_waiting_play and loops[0].readp == 0:
+        if self.is_waiting_play and loops[0].writep == loops[0].length - 1:
             self.is_waiting_play = False
             self.is_playing = True
 
-        if self.is_waiting_mute and loops[0].readp == 0:
+        if self.is_waiting_mute and loops[0].writep == loops[0].length - 1:
             self.is_waiting_mute = False
             self.is_playing = False
 
@@ -496,13 +535,17 @@ class audioloop:
 
         tmp = self.readp
         self.increment_pointers()
-
         return(self.main_audio[tmp, :])
 
     def undo(self):
+        global LENGTH
         if self.is_recording:
             self.clear_track()
-            print('-=Undo=-','\n')
+            if LoopNumber == 0:
+                LENGTH = 0
+            return
+        self.dub_audio, self.main_audio = self.main_audio, self.dub_audio
+        print('-=Undo=-','\n')
         debug()
 
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
@@ -523,6 +566,7 @@ class audioloop:
                 loop.writep = 0
                 loop.pointer_last_buffer_recorded = 0
                 loop.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+                loop.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
                 loop.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
             setup_donerecording = False
             setup_is_recording = False
@@ -546,6 +590,7 @@ class audioloop:
         self.writep = 0
         self.pointer_last_buffer_recorded = 0
         self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
+        self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
         self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
         print('-=Clear Track=-', '\n')
 
@@ -561,18 +606,17 @@ class audioloop:
         if self.is_recording:
             already_recording = True
             #turn off recording
-            if not self.initialized:
-                self.initialize()
-                if LoopNumber == 0:
-                    setup_is_recording = False
-                    setup_donerecording = True
-                    print('---Master Track Recorded---','\n')
+            self.initialize()
+            if LoopNumber == 0 and not setup_donerecording:
+                setup_is_recording = False
+                setup_donerecording = True
+                print('---Master Track Recorded---','\n')
             self.is_recording = False
             self.is_waiting_rec = False
 
         #unless flagged, schedule recording. If chosen track was recording, then stop recording
         if not already_recording:
-            if LoopNumber == 0:
+            if LoopNumber == 0 and not setup_donerecording:
                 self.is_recording = True
                 setup_is_recording = True
             else:
@@ -583,7 +627,7 @@ class audioloop:
 loops = [audioloop() for _ in range(10)]
 
 def debug():
-    print('   |init|isrec\t|iswait\t|isplay\t|iswaiP\t|iswaiM\t|Solo\t|Vol')
+    print('   |init|rec\t|wait\t|play\t|waiP\t|waiM\t|Solo\t|Vol\t|ReaP\t|WriP\t|Leng\t|')
     for i in range(9):
         print(i, ' |',
               int(loops[i].initialized), '\t|',
@@ -593,7 +637,11 @@ def debug():
               int(loops[i].is_waiting_play), '\t|',
               int(loops[i].is_waiting_mute), '\t|',
               int(loops[i].is_solo), '\t|',
-              round(loops[i].volume,1))
+              int(loops[i].volume), '\t|',
+              int(loops[i].readp), '\t|',
+              int(loops[i].writep), '\t|',
+              int(loops[i].length), '\t|'
+              )
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
     print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
     print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
@@ -621,7 +669,7 @@ def show_status():
     elif loops[LoopNumber].is_waiting_rec:
         RECLEDR.on()
         RECLEDG.on()
-    elif setup_donerecording:
+    elif setup_donerecording or not loops[LoopNumber].is_recording:
         RECLEDR.off()
         RECLEDG.off()
 
@@ -643,12 +691,11 @@ current_rec_buffer = np.zeros([CHUNK], dtype=np.int16) #Buffer to hold in_data
 @client.set_process_callback
 def looping_callback(frames):
     global play_buffer, current_rec_buffer
-    global LENGTH, First_Run
+    global LENGTH, ti_mer, first_run
 
-    # Waits 3 seconds aprox. only the First_Run to allow all the jack connections be finished
-    if First_Run < (18000/RATE*CHUNK):
-        First_Run += 1
-        print(First_Run, end='\r')
+    if first_run < 1.5 * RATE / CHUNK:
+        first_run += 1
+        print(first_run, end='\r')
         return
 
     # Read input buffer from JACK
@@ -661,8 +708,13 @@ def looping_callback(frames):
     #if a loop is recording, check initialization and accordingly append
     for loop in loops:
         if loop.is_recording:
-            print('--------------------------------------------------=Recording=-', end='\r')
-            loop.add_buffer(current_rec_buffer)
+            if loop.initialized:
+                print('--------------------------------------------------=Dubbing=-', end='\r')
+                loop.dub(current_rec_buffer)
+            else:
+                print('--------------------------------------------------=Recording=-', end='\r')
+                loop.add_buffer(current_rec_buffer)
+
 
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:] = np.multiply((
@@ -699,7 +751,6 @@ with client:
         print('----- Jack Client Out Port Registered-----\n', str(output_port),'\n')
         time.sleep(0.2)
 
-        #time.sleep(2)
         all_captures_to_input()
         time.sleep(0.2)
         output_to_all_playbacks()
@@ -715,24 +766,19 @@ with client:
         print("MIDI Playback Ports:",'\n')
         print(inMIDIports,'\n')
 
+        # Start FluidSynth in another thread
+        #loader_thread = threading.Thread(target=start_fluidsynth)
+        #loader_thread.start()
+        start_fluidsynth()
+        time.sleep(3)
+        connect_fluidsynth_to_input()
+
         #then we turn on Green and Red lights of REC Button to indicate that looper is ready to start looping
         print("Jack Client Active. Press Ctrl+C to Stop.",'\n')
         show_status()
         debug()
         #once all LEDs are on, we wait for the master loop record button to be pressed
         print('---Waiting for Record Button---','\n')
-
-        # If a MIDI Capture Port exists, start FluidSynth
-        target_port = 'system:midi_capture_1'
-        if any(port.name == target_port for port in outMIDIports):
-            if len(sf2_list) > 0:
-                soundfont = " ./sf2/"+str(sf2_list[0])
-            else:
-                soundfont = ""
-            os.system ("sudo -H -u raspi fluidsynth -isj -a jack -r 48000 -g 0.9 -o 'midi.driver=jack' -o 'audio.jack.autoconnect=True' -o 'shell.port=9988'  "+soundfont+" &")
-            print('---FluidSynth Jack Starting---','\n')
-            time.sleep(3)
-            connect_fluidsynth_to_input()
 
         while True:
             show_status()
@@ -741,3 +787,5 @@ with client:
 
     except KeyboardInterrupt:
         TurningOff()
+
+
