@@ -1,12 +1,13 @@
 import jack
-import threading
 import numpy as np
 import time
 import os, sys
 from gpiozero import LED, Button, LEDCharDisplay
 from time import sleep
-
-print('Starting RaspiLoopStation...','\n')
+sys.path.append('./pyfluidsynth')
+import fluidsynth
+print('','\n')
+print('--- Starting RaspiLoopStation... ---','\n')
 
 # Get configuration (audio settings etc.) from file
 settings_file = open('./settings.prt', 'r')
@@ -30,11 +31,12 @@ setup_donerecording = False  # Set to true when first track 1 recording is done
 Mode = 3
 Preset = 0
 Bank = 0
-BankCounter = 0
+sfid = 0
 OrigVolume = 5
 DispData = ""
 dispcount = 0
 first_run = 0
+first_synth = 0
 ti_mer = int(RATE / CHUNK)
 func_name = ""
 
@@ -55,6 +57,7 @@ up_ramp = np.linspace(0, 1, CHUNK)
 # Get a list of all files in the directory ./sf2
 sf2_dir = "./sf2"
 sf2_list = sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])  # Put all the detected files alphabetically on an array
+
 # ------- END of Variables and Flags ------
 
 print('Rate: ' + str(RATE) + ' / CHUNK: ', str(CHUNK), '\n')
@@ -136,7 +139,7 @@ def PowerOffLeds():
 
 # Behavior when MODEBUTTON is pressed
 def Change_Mode():
-    global Mode, mode_was_held
+    global Mode, mode_was_held, first_synth, sfid
     if not mode_was_held:
         if Mode == 3:
             Mode = 0
@@ -144,6 +147,12 @@ def Change_Mode():
             Mode = 1
             PowerOffLeds()
             display.value=((str(Bank))[-1]+".")
+            # If it is the first time MODEBUTTON is pressed, loads the first soundfont of the list
+            if first_synth == 0:
+                if len(sf2_list) > 0:
+                    sfid = fs.sfload("./sf2/" + sf2_list[0])
+                    fs.program_select(0, sfid, 0, 0)
+                    first_synth = 1
             print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
         elif Mode == 1:
             Mode = 0
@@ -256,31 +265,19 @@ def Clear_Button_Held():
 
 # Changes the FluidSynth Preset
 def ChangePreset():
+    fs.program_select(0, sfid, 0, Preset)
     txt = "echo 'prog 0 "+str(Preset)+"' > /dev/tcp/localhost/9988"
-    write2cons(txt)
-    time.sleep(0.1)
     print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Changes the FluidSynth Bank
 def ChangeBank():
-    global BankCounter, Preset, DispData
+    global DispData, sfid
     DispData = str(Bank)[-1] + "."
-    txt = "echo 'unload "+str(BankCounter)+"' > /dev/tcp/localhost/9988"
-    write2cons(txt)
-    time.sleep(0.1)
-    txt = "echo 'load ./sf2/"+str(sf2_list[Bank])+"' > /dev/tcp/localhost/9988"
-    write2cons(txt)
-    BankCounter += 1
-    Preset = 0
-    ChangePreset()
+    fs.sfunload(sfid)
+    sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
+    fs.program_select(0, sfid, 0, 0)
+    DispData = str(Bank)[-1] + "."
     print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
-
-# Sends msgs to FluidSynth Console
-def write2cons(txt):
-    f = open("./preset.sh", "w")
-    f.write(txt)
-    f.close()
-    os.system("sudo -H -u raspi bash ./preset.sh")
 
 # Assign all the Capture ports to Looper Input
 def all_captures_to_input():
@@ -291,7 +288,7 @@ def all_captures_to_input():
     for src in capture:
         client.connect(src, input_port)
 
-#Assign the Looper Output to all the Playback ports
+# Assign the Looper Output to all the Playback ports
 def output_to_all_playbacks():
     playback = client.get_ports(is_audio=True, is_physical=True, is_input=True)
     print(playback, '\n')
@@ -300,22 +297,12 @@ def output_to_all_playbacks():
     for dest in playback:
         client.connect(output_port, dest)
 
-# If a MIDI Capture Port exists, start FluidSynth
-def start_fluidsynth():
-    target_port = 'system:midi_capture_1'
-    if any(port.name == target_port for port in outMIDIports):
-        if len(sf2_list) > 0:
-            soundfont = " ./sf2/" + str(sf2_list[0])
-        else:
-            soundfont = ""
-        os.system("sudo -H -u raspi fluidsynth -isj -a jack -r 48000 -g 0.9 -o 'midi.driver=jack' -o 'audio.jack.autoconnect=True' -o 'shell.port=9988' -o 'synth.cpu-cores=4' -o 'synth.default-soundfont=' &")
-        print('---FluidSynth Jack Starting---', '\n')
-
-#Assign all the Capture ports to Looper Input
+# Assign all the Capture ports to Looper Input
 def connect_fluidsynth_to_input():
-    client.connect('fluidsynth-midi:left', 'RaspiLoopStation:input_1')
-    client.connect('fluidsynth-midi:right', 'RaspiLoopStation:input_1')
+    client.connect('fluidsynth:left', 'RaspiLoopStation:input_1')
+    client.connect('fluidsynth:right', 'RaspiLoopStation:input_1')
 
+# If Jack Server is already running, returns True, else returns False
 def is_jack_server_running():
     try:
         # Try to create a Cliente without activating
@@ -325,7 +312,7 @@ def is_jack_server_running():
     except jack.JackError: # If JackError happens, ther server is NOT active
         return False
 
-#Defining functions of all the buttons during jam session...
+# Defining functions of all the buttons during jam session...
 PREVBUTTON.when_released = Prev_Button_Press
 PREVBUTTON.when_held = Prev_Button_Held
 NEXTBUTTON.when_released = Next_Button_Press
@@ -407,9 +394,7 @@ class audioloop:
 
     #initialize() raises self.length to closest integer multiple of LENGTH and initializes read and write pointers
     def initialize(self): #It initializes when recording of loop stops. It de-initializes after Clearing.
-        if self.initialized:
-            self.is_recording = False
-        else:
+        if not self.initialized:
             self.writep = self.length - 1
             self.length_factor = (int((self.length - OVERSHOOT) / LENGTH) + 1)
             self.length = self.length_factor * LENGTH
@@ -450,7 +435,8 @@ class audioloop:
             self.dub_audio[self.writep, :] = self.main_audio[self.writep, :]
             self.main_audio[self.writep, :] = np.copy(data) #Add to main_audio the buffer entering through Jack
         elif self.writep == self.length - 1:
-            self.set_recording()
+            self.is_recording = False
+            self.is_waiting_rec = False
 
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
@@ -474,18 +460,18 @@ class audioloop:
         print('-=Toggle Solo=-','\n')
         if self.initialized:
             if not self.is_solo:
-                print('-------------Solo')
                 for i in range(10):
                     if i != LoopNumber and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
                         loops[i].is_waiting_mute = True
                 self.is_solo = True
+                print('-------------Solo')
             else:
-                print('-------------UnSolo')
                 for i in range (10):
-                    if i !=  LoopNumber and loops[i].initialized:
+                    if i != LoopNumber and loops[i].initialized:
                         loops[i].is_waiting_play = True
                         loops[i].is_solo = False
                 self.is_solo = False
+                print('-------------UnSolo')
             debug()
 
     #Restarting is True only when readp==0 and the loop is initialized, and is only checked after recording the Master Loop (0)
@@ -605,14 +591,15 @@ class audioloop:
         #if chosen track is currently recording, flag it
         if self.is_recording:
             already_recording = True
-            #turn off recording
-            self.initialize()
-            if LoopNumber == 0 and not setup_donerecording:
-                setup_is_recording = False
-                setup_donerecording = True
-                print('---Master Track Recorded---','\n')
-            self.is_recording = False
-            self.is_waiting_rec = False
+            # turn off recording
+            if not self.initialize():
+                self.initialize()
+                self.is_recording = False
+                self.is_waiting_rec = False
+                if LoopNumber == 0 and not setup_donerecording:
+                    setup_is_recording = False
+                    setup_donerecording = True
+                    print('---Master Track Recorded---','\n')
 
         #unless flagged, schedule recording. If chosen track was recording, then stop recording
         if not already_recording:
@@ -715,7 +702,6 @@ def looping_callback(frames):
                 print('--------------------------------------------------=Recording=-', end='\r')
                 loop.add_buffer(current_rec_buffer)
 
-
     #add to play_buffer only one-fourth of each audio signal times the output_volume
     play_buffer[:] = np.multiply((
         loops[0].read().astype(np.int32)*loops[0].volume/10+
@@ -746,15 +732,15 @@ with client:
         # Registering Ins/Outs Ports
         input_port = client.inports.register("input_1")
         print('----- Jack Client In Port Registered-----\n', str(input_port), '\n')
-        time.sleep(0.2)
+        time.sleep(0.1)
         output_port = client.outports.register("output_1")
         print('----- Jack Client Out Port Registered-----\n', str(output_port),'\n')
-        time.sleep(0.2)
+        time.sleep(0.1)
 
         all_captures_to_input()
-        time.sleep(0.2)
+        time.sleep(0.1)
         output_to_all_playbacks()
-        time.sleep(0.2)
+        time.sleep(0.1)
 
         # Get MIDI Capture Ports
         outMIDIports = client.get_ports(is_midi=True, is_output=True)
@@ -766,11 +752,24 @@ with client:
         print("MIDI Playback Ports:",'\n')
         print(inMIDIports,'\n')
 
-        # Start FluidSynth in another thread
-        #loader_thread = threading.Thread(target=start_fluidsynth)
-        #loader_thread.start()
-        start_fluidsynth()
-        time.sleep(3)
+        # If a MIDI Capture Port exists, Load FluidSynth
+        target_port = 'system:midi_capture_1'
+        if any(port.name == target_port for port in outMIDIports):
+            fs = fluidsynth.Synth()  # Loads FluidSynth but remains inactive
+            fs.setting("audio.driver", 'jack')
+            fs.setting("midi.driver", 'jack')
+            fs.setting("synth.sample-rate", 48000.0)
+            fs.setting("audio.jack.autoconnect", True)
+            fs.setting("midi.autoconnect", True)
+            fs.setting("shell.port", 9988)
+            fs.setting("synth.gain", 0.9)
+            fs.setting("synth.cpu-cores", 4)
+            print('---FluidSynth Jack Loading---', '\n')
+            time.sleep(1)
+
+        # Start FluidSynth
+        fs.start()
+        time.sleep(1)
         connect_fluidsynth_to_input()
 
         #then we turn on Green and Red lights of REC Button to indicate that looper is ready to start looping
