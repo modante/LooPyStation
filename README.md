@@ -70,6 +70,7 @@ Video: Fist sesions of Ephemeral Songs https://video.anartist.org/w/d7WA2y3ncZWz
 
 ToDo:
 - Recording session to wav or export the complete session (or both)
+- Implementing a Guitarix Mode?
 - Document switches, connections and wiring
 - Make a video to explain how it works
 
