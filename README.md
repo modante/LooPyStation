@@ -65,8 +65,9 @@ Works with **Jack** which allows an easy and powerfull configuration
 Video: Fist sesions of Ephemeral Songs https://video.anartist.org/w/d7WA2y3ncZWzXvwGi6GirG
 
 ![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
-
-![imagen](https://github.com/user-attachments/assets/c0264a8e-3662-4eb9-855b-bd9bf15feecf)
+![photo_2024-11-26_11-53-39](https://github.com/user-attachments/assets/a4f5ce32-0bb3-43d6-b565-174189d2d8bf)
+![photo_2024-11-26_11-53-42](https://github.com/user-attachments/assets/7ead2b8a-ff21-42fd-8898-1221478dfb37)
+![photo_2024-11-26_11-53-45](https://github.com/user-attachments/assets/f1575d83-0f9d-427f-a63f-fe5e53f3e4b6)
 
 ToDo:
 - Recording session to wav or export the complete session (or both)
