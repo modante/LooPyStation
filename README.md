@@ -23,15 +23,18 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
 ### How to play with LooPyStation?
 - Design for 6 Buttons:
   - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
+    - Looper Mode: Prev / Next Buttons changes Track Number (press) or Volume (hold)
+    - FluidSynth Mode: Prev / Next Buttons changes Preset Number (press) or Bank Number (hold)
+    - Rec, Undo/Clear and Mute/Solo do the same functions in both modes
   - **Rec Button:**
-    - Press to Record. Press again to Stop Recording (Looper Mode)
-    - If you want to stop and discard recording: Press Mute Button
+    - Press to Record. Press again to Stop Recording (Looper and FluidSynth Mode)
+    - If you want to stop and discard recording: Press Undo/Clear Button while recording
+  - **Undo/Clear Button:**
+    - When Pressed: Stops recording and reset Track while recording. Undo when playing
+    - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
   - **Mute/Solo Button:**
     - When Pressed: Mute selected Track. Press again to UnMute (Looper Mode)
     - When Held: Solo selected Track. Hold again to UnSolo (Looper Mode)
-  - **Stop/Clear Button:**
-    - When Pressed: Stops recording and reset Track
-    - When Held: Clear selected Track, even if it is Recording. If track 0 is selected, Erase and Reset all the Tracks of the Looper  (Looper Mode)
   - **Prev Button:**
     - When Pressed: Jumps to the prev track (Looper Mode) / Decrease 1 preset number (Looper Mode)
     - When Held: Decrease 1 bank numbers (FluidSynth Mode) / Decrease Volume of selected Track (Looper Mode)
@@ -40,7 +43,7 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
     - When Held: Increase 1 bank numbers (FluidSynth Mode) / Increase Volume of selected Track (Looper Mode)
 - **7 segments Display**
   - Looper Mode: Displays the Track number (0-9) or the volume of the selected Track (0-9)
-  - FluidSynth Mode: Displays the last digit of selected Preset or the selected Bank
+  - FluidSynth Mode: Displays the last digit of selected Preset or the selected Bank. Always a "." (decimal point) is on.
 - **4 Leds**, 1 Red + 1 Green Leds on Rec and Mute/Solo Buttons:
   - Rec Button:
     - Yellow (Red+Green): When the Track is waiting to Record instantaneously (in case of Master Track 0) or when restarting the Loop
@@ -49,10 +52,11 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
     - Green: When Track is Playing (not Muted)
     - Yellow: When Track is waiting the restarting of the Loop to Mute/UnMute or Solo/UnSolo
     - Red: Flashes when Loop is restarting
-- If a MIDI Capture Port is detected on Jack, launches **FluidSynth**
-  - Loads the default FluidR3_GM.sf2 (can be changed)
-  - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of GM SoundFont.
-  - Pressing again MODEBUTTON changes to Looper Mode and the output L+R of FluidSynth is connected to Input port of Looper in order to be recorded on selected Track.
+- If a MIDI Capture Port is detected on Jack at boot, loads **FluidSynth**
+  - The output L+R of FluidSynth is connected to Input port of Looper in order to be recorded on selected Track.
+  - In the first change to FluidSynth Mode, loads the first (alphabetically) sf2 file on ./sf2 dir
+  - Pressing MODEBUTTON changes to FluidSynth Mode and the Prev/Next Buttons changes the Preset Number of SoundFont.
+  - Pressing again MODEBUTTON changes to Looper Mode.
 
 Works with **Jack** which allows an easy and powerfull configuration
   - All the physical inputs of soundcard (Jack capture ports) are connected to Input port of Looper

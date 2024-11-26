@@ -437,6 +437,7 @@ class audioloop:
         elif self.writep == self.length - 1:
             self.is_recording = False
             self.is_waiting_rec = False
+            self.is_playing = True
 
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
@@ -526,12 +527,15 @@ class audioloop:
     def undo(self):
         global LENGTH
         if self.is_recording:
-            self.clear_track()
-            if LoopNumber == 0:
-                LENGTH = 0
-            return
-        self.dub_audio, self.main_audio = self.main_audio, self.dub_audio
-        print('-=Undo=-','\n')
+            if not self.initialized:
+                self.clear_track()
+                if LoopNumber == 0:
+                    LENGTH = 0
+                return
+        else:
+            if self.is_playing:
+                self.dub_audio, self.main_audio = self.main_audio, self.dub_audio
+                print('-=Undo=-','\n')
         debug()
 
     #clear() clears the loop so that a new loop of the same or a different length can be recorded on the track
@@ -592,7 +596,7 @@ class audioloop:
         if self.is_recording:
             already_recording = True
             # turn off recording
-            if not self.initialize():
+            if not self.initialized:
                 self.initialize()
                 self.is_recording = False
                 self.is_waiting_rec = False
@@ -603,6 +607,9 @@ class audioloop:
 
         #unless flagged, schedule recording. If chosen track was recording, then stop recording
         if not already_recording:
+            if self.is_waiting_rec and setup_donerecording:
+                self.is_waiting_rec = False
+                return
             if LoopNumber == 0 and not setup_donerecording:
                 self.is_recording = True
                 setup_is_recording = True
@@ -758,10 +765,9 @@ with client:
             fs = fluidsynth.Synth()  # Loads FluidSynth but remains inactive
             fs.setting("audio.driver", 'jack')
             fs.setting("midi.driver", 'jack')
-            fs.setting("synth.sample-rate", 48000.0)
+            fs.setting("synth.sample-rate", float(RATE))
             fs.setting("audio.jack.autoconnect", True)
             fs.setting("midi.autoconnect", True)
-            fs.setting("shell.port", 9988)
             fs.setting("synth.gain", 0.9)
             fs.setting("synth.cpu-cores", 4)
             print('---FluidSynth Jack Loading---', '\n')
