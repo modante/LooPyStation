@@ -6,6 +6,8 @@ from gpiozero import LED, Button, LEDCharDisplay
 from time import sleep
 sys.path.append('./pyfluidsynth')
 import fluidsynth
+sys.path.append('./guitarix_presets')
+import guitarix_presets
 print('','\n')
 print('--- Starting RaspiLoopStation... ---','\n')
 
@@ -25,6 +27,7 @@ overshoot_in_milliseconds = int(parameters[5])  # Allowance in milliseconds for 
 OVERSHOOT = round((overshoot_in_milliseconds/1000) * (RATE/CHUNK))  # Allowance in buffers
 MAXLENGTH = int(12582912 / CHUNK)  # 96mb of audio in total
 LENGTH = 0  # Length of the first recording of or Master Track (0). All subsequent recordings quantized to a multiple of this.
+number_of_tracks = 10
 LoopNumber = 0  # Pointer to the selected Loop/Track
 setup_is_recording = False  # Set to True when track 1 recording button is first pressed
 setup_donerecording = False  # Set to true when first track 1 recording is done
@@ -37,21 +40,42 @@ DispData = ""
 dispcount = 0
 first_run = 0
 first_synth = 0
+first_guitarix = 0
 ti_mer = int(RATE / CHUNK)
 func_name = ""
 
-# Flags for Buttons
-rec_was_held = False
+rec_was_held = False  # Flags for Buttons Held
 play_was_held = False
 clear_was_held = False
 prev_was_held = False
 next_was_held = False
 mode_was_held = False
 
-# Mixed output (sum of audio from tracks) is multiplied by output_volume before being played. Not used by now
-output_volume = np.float32(1.0)
-# Multiplying by up_ramp and down_ramp gives fade-in and fade-out
-down_ramp = np.linspace(1, 0, CHUNK)
+# Buttons, Leds and 8-Segments Display
+debounce_length = 0.05  # Length in seconds of button debounce period
+display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
+PLAYLEDR = (LED(26, active_high=False))
+PLAYLEDG = (LED(20, active_high=False))
+RECLEDR = (LED(0, active_high=False))
+RECLEDG = (LED(1, active_high=False))
+RECBUTTON = (Button(18, bounce_time=debounce_length))
+RECBUTTON.hold_time=0.5
+PLAYBUTTON = (Button(15, bounce_time=debounce_length))
+PLAYBUTTON.hold_time = 0.5
+CLEARBUTTON = (Button(17, bounce_time=debounce_length))
+CLEARBUTTON.hold_time = 0.5
+PREVBUTTON = (Button(5, bounce_time=debounce_length))
+PREVBUTTON.hold_time = 0.5
+NEXTBUTTON = (Button(12, bounce_time=debounce_length))
+NEXTBUTTON.hold_time = 0.5
+MODEBUTTON = (Button(6, bounce_time=debounce_length))
+MODEBUTTON.hold_time = 2.5
+
+play_buffer = np.zeros([CHUNK], dtype=np.int16)  #Buffer to hold mixed audio from all tracks
+silence = np.zeros([CHUNK], dtype=np.int16)  #A buffer containing silence
+current_rec_buffer = np.zeros([CHUNK], dtype=np.int16)  # Buffer to hold in_data
+output_volume = np.float32(1.0)  # Mixed output (sum of audio from tracks) is multiplied by output_volume before being played. Not used by now
+down_ramp = np.linspace(1, 0, CHUNK)  # Multiplying by up_ramp and down_ramp gives fade-in and fade-out
 up_ramp = np.linspace(0, 1, CHUNK)
 
 # Get a list of all files in the directory ./sf2
@@ -63,32 +87,11 @@ sf2_list = sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join
 print('Rate: ' + str(RATE) + ' / CHUNK: ', str(CHUNK), '\n')
 print('Latency correction (buffers): ', str(LATENCY), '\n')
 
-# Buttons, Leds and 8-Segments Display
-debounce_length = 0.05  # Length in seconds of button debounce period
-display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
-PLAYLEDR = (LED(26, active_high=False))
-PLAYLEDG = (LED(20, active_high=False))
-RECLEDR = (LED(0, active_high=False))
-RECLEDG = (LED(1, active_high=False))
-RECBUTTON = (Button(18, bounce_time=debounce_length))
-PLAYBUTTON = (Button(15, bounce_time=debounce_length))
-CLEARBUTTON = (Button(17, bounce_time=debounce_length))
-PREVBUTTON = (Button(5, bounce_time=debounce_length))
-NEXTBUTTON = (Button(12, bounce_time=debounce_length))
-MODEBUTTON = (Button(6, bounce_time=debounce_length))
-
-RECBUTTON.hold_time=0.5
-PLAYBUTTON.hold_time = 0.5
-CLEARBUTTON.hold_time = 0.5
-PREVBUTTON.hold_time = 0.5
-NEXTBUTTON.hold_time = 0.5
-MODEBUTTON.hold_time = 3
-
 # Turns Off the Looper and exits
 def TurningOff():
-    os.system("sudo -H -u raspi killall fluidsynth")
-    print("Closing FluidSynth")
-    time.sleep(1)
+    if first_synth == 1:
+        fs.delete()
+        print("Closing FluidSynth")
     client.deactivate()
     print("Deactivating JACK Client")
     PowerOffLeds()
@@ -173,7 +176,7 @@ def Prev_Button_Press():
     if not prev_was_held:
         if Mode == 0 and setup_donerecording:
             if LoopNumber == 0:
-                LoopNumber = 9
+                LoopNumber = number_of_tracks - 1
             else:
                 LoopNumber -= 1
             print('-= Prev Loop =---> ', LoopNumber,'\n')
@@ -204,7 +207,7 @@ def Next_Button_Press():
     global LoopNumber, Preset, next_was_held
     if not next_was_held:
         if Mode == 0 and setup_donerecording:
-            if LoopNumber == 9:
+            if LoopNumber == number_of_tracks - 1:
                 LoopNumber = 0
             else:
                 LoopNumber = LoopNumber+1
@@ -320,15 +323,15 @@ NEXTBUTTON.when_held = Next_Button_Held
 MODEBUTTON.when_released = Change_Mode
 MODEBUTTON.when_held = restart_program
 RECBUTTON.when_pressed = Rec_Button_Pressed
-#RECBUTTON.when_held =
 CLEARBUTTON.when_released = Clear_Button_Pressed
 CLEARBUTTON.when_held = Clear_Button_Held
 PLAYBUTTON.when_released = Mute_Button_Pressed
 PLAYBUTTON.when_held = Mute_Button_Held
 
+# Detects if the SoundCard defined on settings is connected
 print("Detecting SoundCard Number:",str(INDEVICE))
-display.value = " ."
-while Mode == 3:
+display.value = " ."  # Shows a decimal point on 8-seg Display
+while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
     try:
         with open("/proc/asound/cards", "r") as f:
             content = f.read().strip()
@@ -338,7 +341,6 @@ while Mode == 3:
             print("Sound card number:",str(INDEVICE)," detected\n")
         else:
             print("Sound card number:",str(INDEVICE)," NOT detected", end='\r')
-            time.sleep(1)
     except FileNotFoundError:
         print("This system does not have /proc/asound/cards. Not a Linux system?")
 
@@ -359,6 +361,63 @@ else:
 # Initializing JACK Client
 client = jack.Client("RaspiLoopStation")
 print('----- Jack Client RaspiLoopStation Initialized','\n')
+
+# Debug prints info on stdout
+def debug():
+    print('   |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|ReaP\t|WriP\t|Leng')
+    for i in range(9):
+        print(i, ' |',
+              int(loops[i].initialized), '  |',
+              int(loops[i].is_recording), '  |',
+              int(loops[i].is_waiting_rec), '  |',
+              int(loops[i].is_playing), '  |',
+              int(loops[i].is_waiting_play), '  |',
+              int(loops[i].is_waiting_mute), '  |',
+              int(loops[i].is_solo), '  |',
+              int(loops[i].volume), '\t|',
+              int(loops[i].readp), '\t|',
+              int(loops[i].writep), '\t|',
+              int(loops[i].length))
+    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
+    print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
+    print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
+
+# Checks which loops are recording/playing/waiting and lights up LEDs and Display accordingly
+def show_status():
+    global DispData, dispcount
+    # If Prev / Next Buttons are Pressed, 8-seg. Display shows selected LoopNumber / Preset (depends of Mode)
+    if DispData == "":
+        if Mode == 0:
+            display.value = str(LoopNumber)[-1]
+        elif Mode == 1:
+            display.value = str(Preset)[-1] + "."
+    else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
+        if dispcount <= 4:
+            display.value = DispData
+            dispcount += 1
+        else:
+            dispcount = 0
+            DispData = ""
+    # Leds Status for Rec Button ---------------------------
+    if loops[LoopNumber].is_recording:
+        RECLEDR.on()
+        RECLEDG.off()
+    elif loops[LoopNumber].is_waiting_rec:
+        RECLEDR.on()
+        RECLEDG.on()
+    elif setup_donerecording or not loops[LoopNumber].is_recording:
+        RECLEDR.off()
+        RECLEDG.off()
+    # Leds Status for Play Button ---------------------------
+    if loops[LoopNumber].is_waiting_play or loops[LoopNumber].is_waiting_mute:
+        PLAYLEDR.on()
+        PLAYLEDG.on()
+    elif loops[LoopNumber].is_playing:
+        PLAYLEDR.off()
+        PLAYLEDG.on()
+    else:
+        PLAYLEDR.off()
+        PLAYLEDG.off()
 
 class audioloop:
     def __init__(self):
@@ -387,7 +446,6 @@ class audioloop:
             print(' '*60, end='\r')
         else:
             self.readp += 1
-
         progress = (loops[0].readp / (loops[0].length + 1))*41
         self.writep = (self.writep + 1) % self.length
         print('#'*int(progress), end='\r')
@@ -418,7 +476,7 @@ class audioloop:
         debug()
 
     #add_buffer() appends a new buffer unless loop is filled to MAXLENGTH
-    #expected to only be called before initialization
+    #expected to be called only before initialization
     def add_buffer(self, data):
         global LENGTH
         if self.length >= (MAXLENGTH - 1):
@@ -461,13 +519,13 @@ class audioloop:
         print('-=Toggle Solo=-','\n')
         if self.initialized:
             if not self.is_solo:
-                for i in range(10):
+                for i in range(number_of_tracks):
                     if i != LoopNumber and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
                         loops[i].is_waiting_mute = True
                 self.is_solo = True
                 print('-------------Solo')
             else:
-                for i in range (10):
+                for i in range (number_of_tracks):
                     if i != LoopNumber and loops[i].initialized:
                         loops[i].is_waiting_play = True
                         loops[i].is_solo = False
@@ -543,21 +601,7 @@ class audioloop:
         global setup_donerecording, setup_is_recording, LENGTH
         if LoopNumber == 0:
             for loop in loops:
-                loop.initialized = False
-                loop.is_waiting_rec = False
-                loop.is_waiting_play = False
-                loop.is_waiting_mute = False
-                loop.is_playing = False
-                loop.is_recording = False
-                loop.length_factor = 1
-                loop.length = 0
-                loop.volume = OrigVolume
-                loop.readp  =  0
-                loop.writep = 0
-                loop.pointer_last_buffer_recorded = 0
-                loop.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-                loop.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-                loop.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
+                loop.__init__()
             setup_donerecording = False
             setup_is_recording = False
             LENGTH = 0
@@ -567,21 +611,7 @@ class audioloop:
         debug()
 
     def clear_track(self):
-        self.initialized = False
-        self.is_waiting_rec = False
-        self.is_waiting_play = False
-        self.is_waiting_mute = False
-        self.is_playing = False
-        self.is_recording = False
-        self.length_factor = 1
-        self.length = 0
-        self.volume = OrigVolume
-        self.readp = 0
-        self.writep = 0
-        self.pointer_last_buffer_recorded = 0
-        self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-        self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
-        self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
+        self.__init__()
         print('-=Clear Track=-', '\n')
 
     #set_recording() either starts or stops recording
@@ -618,68 +648,7 @@ class audioloop:
         debug()
 
 #defining ten audio loops. loops[0] is the master loop.
-loops = [audioloop() for _ in range(10)]
-
-def debug():
-    print('   |init|rec\t|wait\t|play\t|waiP\t|waiM\t|Solo\t|Vol\t|ReaP\t|WriP\t|Leng\t|')
-    for i in range(9):
-        print(i, ' |',
-              int(loops[i].initialized), '\t|',
-              int(loops[i].is_recording), '\t|',
-              int(loops[i].is_waiting_rec), '\t|',
-              int(loops[i].is_playing), '\t|',
-              int(loops[i].is_waiting_play), '\t|',
-              int(loops[i].is_waiting_mute), '\t|',
-              int(loops[i].is_solo), '\t|',
-              int(loops[i].volume), '\t|',
-              int(loops[i].readp), '\t|',
-              int(loops[i].writep), '\t|',
-              int(loops[i].length), '\t|'
-              )
-    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
-    print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor,'\n')
-    print('|', ' '*7,'|',' '*7,'|', ' '*7,'|',' '*7,'|')
-
-#show_status() checks which loops are recording/playing and lights up LEDs accordingly
-def show_status():
-    global DispData, dispcount
-    # If Prev / Next Buttons are Pressed shows selected LoopNumber / Preset (depends of Mode)
-    if DispData == "":
-        if Mode == 0:
-            display.value = str(LoopNumber)
-        elif Mode == 1:
-            display.value = str(Preset)[-1] + "."
-    else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
-        if dispcount <= 4:
-            display.value = DispData
-            dispcount += 1
-        else:
-            dispcount = 0
-            DispData = ""
-
-    if loops[LoopNumber].is_recording:
-        RECLEDR.on()
-        RECLEDG.off()
-    elif loops[LoopNumber].is_waiting_rec:
-        RECLEDR.on()
-        RECLEDG.on()
-    elif setup_donerecording or not loops[LoopNumber].is_recording:
-        RECLEDR.off()
-        RECLEDG.off()
-
-    if loops[LoopNumber].is_waiting_play or loops[LoopNumber].is_waiting_mute:
-        PLAYLEDR.on()
-        PLAYLEDG.on()
-    elif loops[LoopNumber].is_playing:
-        PLAYLEDR.off()
-        PLAYLEDG.on()
-    else:
-        PLAYLEDR.off()
-        PLAYLEDG.off()
-
-play_buffer = np.zeros([CHUNK], dtype=np.int16) #Buffer to hold mixed audio from all tracks
-silence = np.zeros([CHUNK], dtype=np.int16) #A buffer containing silence
-current_rec_buffer = np.zeros([CHUNK], dtype=np.int16) #Buffer to hold in_data
+loops = [audioloop() for _ in range(number_of_tracks)]
 
 # Callback de procesamiento de audio
 @client.set_process_callback
@@ -687,19 +656,19 @@ def looping_callback(frames):
     global play_buffer, current_rec_buffer
     global LENGTH, ti_mer, first_run
 
-    if first_run < 1.5 * RATE / CHUNK:
+    if first_run < RATE / CHUNK:  # Waits 2 sec. aprox. the first time to allow all the initialization
         first_run += 1
         print(first_run, end='\r')
         return
 
     # Read input buffer from JACK
-    current_rec_buffer = float2pcm(input_port.get_array()) # Capture current input jack buffer after converting Float2PCM
+    current_rec_buffer = float2pcm(input_port.get_array())  # Capture current input jack buffer after converting Float2PCM
 
     # Setup: First Recording
-    if not setup_donerecording: #if setup is not done i.e. if the master loop hasn't been recorded to yet
+    if not setup_donerecording:  # If setup is not done i.e. if the master loop hasn't been recorded to yet
         loops[0].is_waiting_rec = 1
 
-    #if a loop is recording, check initialization and accordingly append
+    # If a loop is recording, check initialization and accordingly append
     for loop in loops:
         if loop.is_recording:
             if loop.initialized:
@@ -709,7 +678,7 @@ def looping_callback(frames):
                 print('--------------------------------------------------=Recording=-', end='\r')
                 loop.add_buffer(current_rec_buffer)
 
-    #add to play_buffer only one-fourth of each audio signal times the output_volume
+    # Add to play_buffer the sum of each audio signal times the each own volume
     play_buffer[:] = np.multiply((
         loops[0].read().astype(np.int32)*loops[0].volume/10+
         loops[1].read().astype(np.int32)*loops[1].volume/10+
@@ -739,15 +708,12 @@ with client:
         # Registering Ins/Outs Ports
         input_port = client.inports.register("input_1")
         print('----- Jack Client In Port Registered-----\n', str(input_port), '\n')
-        time.sleep(0.1)
+
         output_port = client.outports.register("output_1")
         print('----- Jack Client Out Port Registered-----\n', str(output_port),'\n')
-        time.sleep(0.1)
 
         all_captures_to_input()
-        time.sleep(0.1)
         output_to_all_playbacks()
-        time.sleep(0.1)
 
         # Get MIDI Capture Ports
         outMIDIports = client.get_ports(is_midi=True, is_output=True)
@@ -761,7 +727,7 @@ with client:
 
         # If a MIDI Capture Port exists, Load FluidSynth
         target_port = 'system:midi_capture_1'
-        if any(port.name == target_port for port in outMIDIports):
+        if True:  # any(port.name == target_port for port in outMIDIports):
             fs = fluidsynth.Synth()  # Loads FluidSynth but remains inactive
             fs.setting("audio.driver", 'jack')
             fs.setting("midi.driver", 'jack')
@@ -771,12 +737,9 @@ with client:
             fs.setting("synth.gain", 0.9)
             fs.setting("synth.cpu-cores", 4)
             print('---FluidSynth Jack Loading---', '\n')
-            time.sleep(1)
-
-        # Start FluidSynth
-        fs.start()
-        time.sleep(1)
-        connect_fluidsynth_to_input()
+            # Start FluidSynth
+            fs.start()
+            connect_fluidsynth_to_input()
 
         #then we turn on Green and Red lights of REC Button to indicate that looper is ready to start looping
         print("Jack Client Active. Press Ctrl+C to Stop.",'\n')
@@ -787,6 +750,7 @@ with client:
 
         while True:
             show_status()
+            #guitarix_presets.main()
             time.sleep(0.1)
             pass  # Keep Client executing
 

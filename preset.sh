@@ -1,1 +1,0 @@
-echo 'prog 0 5' > /dev/tcp/localhost/9988
