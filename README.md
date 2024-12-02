@@ -16,6 +16,7 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
   - **Volume** per track. Starts on 0.7 (from 0.0 to 1.0)
   - The tracks can be **x times larger** than the master track (track 0)
   - Works with any **USB soundcard / MIDI Keyboard**
+  - Export audio to 320kb mp3 file on ./recordings dir
   - Setup of some **settings.py** like selecting soundcard, buffers size, or overshooting
   - **Latency compensation** using latency.py
   - Sampler FluidSynth loads at boot with the first (alphabetically) soundfont file (.sf2) on ./sf2 dir

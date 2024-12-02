@@ -4,24 +4,7 @@
 guitarix_pgm = "guitarix -N -p 7000"
 
 import socket, json, os, time, signal
-import sys, tty, termios
 from subprocess import check_output
-
-class _Getch:
-
-    def __call__(self):
-        fd = sys.stdin.fileno()
-        old_settings = termios.tcgetattr(fd)
-        try:
-            tty.setraw(sys.stdin.fileno())
-            ch = sys.stdin.read(1)
-            # check if input is escape code, if so append remaining 2 bytes
-            if ch == '\x1b':
-                ch += sys.stdin.read(2)
-        finally:
-            termios.tcsetattr(fd, termios.TCSADRAIN, old_settings)
-        return ch
-
 
 class RpcNotification:
 
@@ -29,13 +12,11 @@ class RpcNotification:
         self.method = method
         self.params = params
 
-
 class RpcResult:
 
     def __init__(self, id, result):
         self.id = id
         self.result = result
-
 
 class RpcSocket:
 
@@ -109,7 +90,6 @@ class RpcSocket:
             self.presets.append(d['presets'])
 
 class Guitarix():
-
     def open_socket(self):
         try:
             self.sock = RpcSocket()
@@ -133,15 +113,10 @@ class Guitarix():
             self
 
 def main():
-    # print help message
-    print ("""usage:
-    Switch to next preset with 'down'
-    Switch to previus preset with 'up'
-    switch to next bank with 'left'
-    Switch to previus bank with 'right'
-    quit with: 'q' or 'ctrl-c'\n""")
+    global next_bank, sock, pid
     #start guitarix with rpc port at 7000
     gx = Guitarix()
+    print ("--- Starting Guitarix ---")
     # open a socket at 7000
     sock = RpcSocket()
     # get pid of guitarix instance
@@ -154,45 +129,44 @@ def main():
     next_bank = next_bank + 1
     # print current bank/preset
     sock.print_current_preset()
-    while sock:
-        # wait for input
-        getch = _Getch()
-        x = getch()
-        if x == '\x1b[B':
-            # load next preset from current bank
-            sock.notify("set", ['engine.next_preset',1])
-            sock.print_current_preset()
-        elif x == '\x1b[A':
-            # load previus preset from current bank
-            sock.notify("set", ['engine.previus_preset',1])
-            sock.print_current_preset()
-        elif x == '\x1b[C':
-            # load next bank with first preset
-            if next_bank > len(sock.banks)-1:
-                next_bank = 0
-            sock.notify("setpreset", [sock.banks[next_bank], sock.presets[next_bank][0]])
-            next_bank = next_bank + 1
-            if next_bank > len(sock.banks)-1:
-                next_bank = 0
-            sock.print_current_preset()
-        elif x == '\x1b[D':
-            # load previus bank with first preset
-            next_bank = next_bank - 2
-            if next_bank < 0:
-                next_bank = len(sock.banks)-1
-            sock.notify("setpreset", [sock.banks[next_bank], sock.presets[next_bank][0]])
-            next_bank = next_bank + 1
-            if next_bank > len(sock.banks):
-                next_bank = 0
-            sock.print_current_preset()
-        elif x == 'q' or x == '\x03':
-            try:
-                # quit guitarix
-                os.kill(pid, signal.SIGINT)
-                time.sleep(1)
-            except OSError:
-                print("guitarix didn't run anymore")
-            raise SystemExit
+
+def change_guitarix():
+    global next_bank
+    if x == '\x1b[B':
+        # load next preset from current bank
+        sock.notify("set", ['engine.next_preset',1])
+        sock.print_current_preset()
+    elif x == '\x1b[A':
+        # load previus preset from current bank
+        sock.notify("set", ['engine.previus_preset',1])
+        sock.print_current_preset()
+    elif x == '\x1b[C':
+        # load next bank with first preset
+        if next_bank > len(sock.banks)-1:
+            next_bank = 0
+        sock.notify("setpreset", [sock.banks[next_bank], sock.presets[next_bank][0]])
+        next_bank = next_bank + 1
+        if next_bank > len(sock.banks)-1:
+            next_bank = 0
+        sock.print_current_preset()
+    elif x == '\x1b[D':
+        # load previus bank with first preset
+        next_bank = next_bank - 2
+        if next_bank < 0:
+            next_bank = len(sock.banks)-1
+        sock.notify("setpreset", [sock.banks[next_bank], sock.presets[next_bank][0]])
+        next_bank = next_bank + 1
+        if next_bank > len(sock.banks):
+            next_bank = 0
+        sock.print_current_preset()
+    elif x == 'q' or x == '\x03':
+        try:
+            # quit guitarix
+            os.kill(pid, signal.SIGINT)
+            time.sleep(1)
+        except OSError:
+            print("guitarix didn't run anymore")
+        raise SystemExit
 
 if __name__=="__main__":
     main()
