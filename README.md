@@ -70,6 +70,7 @@ Works with **Jack** which allows an easy and powerfull configuration
   - The Output Port of the Looper is connected with all the physical outputs of soundcard (Jack Playback ports)
 
 Video: Fist sesions of Ephemeral Songs
+
 https://video.anartist.org/w/d7WA2y3ncZWzXvwGi6GirG
 
 https://video.anartist.org/w/3QC7NDNaG3MpVhjX2YGmMk
