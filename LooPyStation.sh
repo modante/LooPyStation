@@ -1,6 +1,8 @@
 #!/bin/bash
 killall fluidsynth
-cd ~/shared/LooPyStation/
+SCRIPT_DIR=$(dirname "$(realpath "$BASH_SOURCE")")
+cd "$SCRIPT_DIR"
+
 if pgrep -x "python" > /dev/null; then
     echo "Python is running."
 else

@@ -83,6 +83,15 @@ https://video.anartist.org/w/3QC7NDNaG3MpVhjX2YGmMk
 
 ![photo_2024-11-26_11-53-45](https://github.com/user-attachments/assets/f1575d83-0f9d-427f-a63f-fe5e53f3e4b6)
 
+### How to run it?
+
+- Just change to the main dir where files are stored.
+- Make _./LooPyStation.sh_ executable: **chmod +x ./LooPyStation.sh**
+- Adjust settings running: **python settings.py**
+- Run the LooPyStation: **./LooPyStation.sh**
+
+-----
+
 ToDo:
 - Design a web controller for using with an smartphone (or whatever)
 - Document help, functions, switches, connections, wiring, ...

@@ -165,19 +165,7 @@ def Rec_Button_Pressed():
     if Mode == 0 or Mode == 1:
         loops[LoopNumber].set_recording()
     elif Mode == 2:
-        global audio_buffer, rec_file
-        if not rec_file:  # If Flag to record on disk is False
-            audio_buffer = io.BytesIO()  # Creates Audio Buffer to be recorded on Disk
-            rec_file = True  # Flag to Start Recording on disk by the loop_callback
-            print("---= Recording to file =---")
-        else:
-            audio_buffer.seek(0)
-            audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
-            date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-            output_file_name = f"./recordings/LooPyStation_output_{date_time_now}.mp3"
-            audio_segment.export(output_file_name, format="mp3", bitrate="320k")  # Write file to disk
-            print("---= MP3 File saved like: ", output_file_name)
-            rec_file = False  # Flag to Stop Recording on disk by the loop_callback
+        rec_audio_session()
 
 # Behavior when MUTEBUTTON is pressed
 def Mute_Button_Pressed():
@@ -195,6 +183,8 @@ def Mute_Button_Held():
         if setup_donerecording:
             play_was_held = True
             loops[LoopNumber].toggle_solo()
+    elif Mode == 2:
+        export_session()
 
 # Behavior when CLEARBUTTON is pressed
 def Clear_Button_Pressed():
@@ -222,6 +212,33 @@ def TurningOff():
     print("Deactivating JACK Client")
     PowerOffLeds()
     print('Done...')
+
+def rec_audio_session():
+    global audio_buffer, rec_file
+    if not rec_file:  # If Flag to record on disk is False
+        audio_buffer = io.BytesIO()  # Creates Audio Buffer to be recorded on Disk
+        rec_file = True  # Flag to Start Recording on disk by the loop_callback
+        print("---= Recording to file =---")
+    else:
+        audio_buffer.seek(0)
+        audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
+        date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+        output_file_name = f"./recordings/LooPyStation_output_{date_time_now}.mp3"
+        audio_segment.export(output_file_name, format="mp3", bitrate="320k")  # Write file to disk
+        print("---= MP3 File saved like: ", output_file_name)
+        rec_file = False  # Flag to Stop Recording on disk by the loop_callback
+
+def export_session():
+    date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+    print(f"-----= Exporting Session {date_time_now}")
+    for i in range(number_of_tracks):
+        if loops[i].initialized:
+            audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
+            audio_buffer=io.BytesIO(audio_buffer)
+            audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
+            output_file_name = f"./recordings/session_{date_time_now}-track_{i}.wav"
+            audio_segment.export(output_file_name, format="wav")  # Write file to disk
+            print("   * Session Track - file saved: ", output_file_name)
 
 # Converts pcm2float array
 def pcm2float(sig, dtype='float32'):
@@ -759,9 +776,9 @@ with client:
 
         #then we turn on Green and Red lights of REC Button to indicate that looper is ready to start looping
         print("Jack Client Active. Press Ctrl+C to Stop.",'\n')
-        debug()
         #once all LEDs are on, we wait for the master loop record button to be pressed
         print('---Waiting for Record Button---','\n')
+        debug()
 
         while True:
             show_status()
