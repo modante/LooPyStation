@@ -71,9 +71,7 @@ Works with **Jack** which allows an easy and powerfull configuration
 
 DEMOS: First sessions of Ephemeral Songs
 
-[LooPyStation_output_2024-12-02_00-31-46.mp3](recordings%2FLooPyStation_output_2024-12-02_00-31-46.mp3)
-
-[LooPyStation_output_2024-12-03_01-09-53.mp3](recordings%2FLooPyStation_output_2024-12-03_01-09-53.mp3)
+https://audio.anartist.org/library/albums/5915
 
 https://video.anartist.org/w/d7WA2y3ncZWzXvwGi6GirG
 
