@@ -8,7 +8,7 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
 ![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
 
 ### Features:
-  - **16 Tracks** that can be selected with the Prev and Next buttons
+  - **16 Tracks** (configurable) that can be selected with the Prev and Next buttons
   - 8-Segments display to show track number and bank/preset of Fluidsynth
   - Infinite **Overdubs** with **Undo** of the last one
   - **Mute/UnMute** & **Solo/Unsolo** per track synced with the starting of loop
