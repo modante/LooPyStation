@@ -69,7 +69,11 @@ Works with **Jack** which allows an easy and powerfull configuration
   - All the physical inputs of soundcard (Jack capture ports) are connected to Input port of Looper
   - The Output Port of the Looper is connected with all the physical outputs of soundcard (Jack Playback ports)
 
-Video: Fist sesions of Ephemeral Songs
+DEMOS: First sessions of Ephemeral Songs
+
+[LooPyStation_output_2024-12-02_00-31-46.mp3](recordings%2FLooPyStation_output_2024-12-02_00-31-46.mp3)
+
+[LooPyStation_output_2024-12-03_01-09-53.mp3](recordings%2FLooPyStation_output_2024-12-03_01-09-53.mp3)
 
 https://video.anartist.org/w/d7WA2y3ncZWzXvwGi6GirG
 
@@ -82,8 +86,8 @@ https://video.anartist.org/w/3QC7NDNaG3MpVhjX2YGmMk
 ![photo_2024-11-26_11-53-45](https://github.com/user-attachments/assets/f1575d83-0f9d-427f-a63f-fe5e53f3e4b6)
 
 ToDo:
-- Implementing a Guitarix Mode
-- Document switches, connections and wiring
+- Design a web controller for using with an smartphone (or whatever)
+- Document help, functions, switches, connections, wiring, ...
 - Make a video to explain how it works
 
 pd: Sorry for the code but I am newby like programmer (1st time using python). Any advice will be welcome :-D
