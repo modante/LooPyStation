@@ -22,13 +22,16 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
   - **Latency compensation** using latency.py
   - Sampler FluidSynth loads at boot with the first (alphabetically) soundfont file (.sf2) on ./sf2 dir. FluidSynth L+R outputs connected to Looper Input
   - Works with **Jack** which allows easy and powerfull configuration
+  - NEW: Implemented basic session export of initialized tracks to wav files
 
 ### How to play with LooPyStation?
 - Design for 6 Buttons:
   - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
     - (0) Looper Mode: Prev / Next Buttons changes Track Number (press) or Volume (hold). Rec, Undo/Clear and Mute/Solo do the same functions in Modes 0 and 1
     - (1) FluidSynth Mode: Prev / Next Buttons changes Preset Number (press) or Bank Number (hold)
-    - (2) Audio Session Recording. Pressing Rec Button to start and again to end the recording
+    - (2) Audio Session Recording:
+      - Pressing Rec Button to start and again to end the recording
+      - Holding Mute Button exports all the initialized tracks to wav files on ./recordings
   - **Rec Button:** (Modes 0 and 1)
     - Press to Record. Press again to Stop Recording (Looper and FluidSynth Mode)
     - If you want to stop and discard recording: Press Undo/Clear Button while recording
