@@ -1,6 +1,6 @@
 # LooPyStation
 
-16 Tracks Looper for Raspberry Pi with Mute, Solo, Undo, Clear, Volume functions and FluidSynth (a soundfont sample player) running at the same time, connected into looper and controlled with the footswitches.
+16 Tracks Looper for Raspberry Pi with Infinite Overdubs, Mute, Solo, Undo, Clear, Volume functions and FluidSynth (a soundfont sample player) running at the same time, connected into looper and controlled with the footswitches.
 To be used with any USB Sound Card and USB MIDI Keyboard (I use it with a Zoom H5 handy recorder and Evolution MK-461 MIDI Keyboard).
 
 Inspired on the great Raspi Looper from RandomVertebrate https://github.com/RandomVertebrate/raspi-looper
