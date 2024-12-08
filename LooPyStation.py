@@ -47,7 +47,6 @@ pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop ca
 synth_initialized = False  # Flag
 rec_file = False  # Flag
 
-
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
 PLAYLEDR = (LED(26, active_high=False))
