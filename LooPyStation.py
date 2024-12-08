@@ -10,7 +10,7 @@ from datetime import datetime
 sys.path.append('./pyfluidsynth')
 import fluidsynth
 
-print('\n', '--- Starting RaspiLoopStation... ---','\n')
+print('\n', '--- Starting LooPyStation... ---', '\n')
 
 # Get configuration (audio settings etc.) from file
 settings_file = open('./settings.prt', 'r')
@@ -29,20 +29,18 @@ OVERSHOOT = round((overshoot_in_milliseconds/1000) * (RATE/CHUNK))  # Allowance 
 MAXLENGTH = int(12582912 / CHUNK)  # 96mb of audio in total
 LENGTH = 0  # Length of the first recording of or Master Track (0). All subsequent recordings quantized to a multiple of this.
 number_of_tracks = 16
-LoopNumber = 0  # Pointer to the selected Loop/Track
+selected_loop = 0  # Pointer to the selected Loop/Track
 setup_is_recording = False  # Set to True when track 1 recording button is first pressed
 setup_donerecording = False  # Set to true when first track 1 recording is done
 Mode = 3
 Preset = 0
 Bank = 0
 sfid = 0
-OrigVolume = 7
-DispData = ""
-dispcount = 0
-first_run = 0
-first_synth = 0
-ti_mer = int(RATE / CHUNK)
-func_name = ""
+init_vol = 7
+display_data = ""
+display_count = 0
+first_run = int(0.5 * RATE / CHUNK)
+synth_initialized = False
 rec_file = False
 
 rec_was_held = False  # Flags for Buttons Held
@@ -60,7 +58,7 @@ PLAYLEDG = (LED(20, active_high=False))
 RECLEDR = (LED(0, active_high=False))
 RECLEDG = (LED(1, active_high=False))
 RECBUTTON = (Button(18, bounce_time=debounce_length))
-RECBUTTON.hold_time=0.5
+RECBUTTON.hold_time = 0.5
 PLAYBUTTON = (Button(15, bounce_time=debounce_length))
 PLAYBUTTON.hold_time = 0.5
 CLEARBUTTON = (Button(17, bounce_time=debounce_length))
@@ -72,10 +70,12 @@ NEXTBUTTON.hold_time = 0.5
 MODEBUTTON = (Button(6, bounce_time=debounce_length))
 MODEBUTTON.hold_time = 2.5
 
-play_buffer = np.zeros([CHUNK], dtype=np.int16)  #Buffer to hold mixed audio from all tracks
-silence = np.zeros([CHUNK], dtype=np.int16)  #A buffer containing silence
+play_buffer = np.zeros([CHUNK], dtype=np.int16)  # Buffer to hold mixed audio from all tracks
+silence = np.zeros([CHUNK], dtype=np.int16)  # A buffer containing silence
 current_rec_buffer = np.zeros([CHUNK], dtype=np.int16)  # Buffer to hold in_data
 output_volume = np.float32(1.0)  # Mixed output (sum of audio from tracks) is multiplied by output_volume before being played. Not used by now
+fade_in = np.linspace(0, 1, CHUNK)
+fade_out = np.linspace(1, 0, CHUNK)
 
 # Get a list of all files in the directory ./sf2
 sf2_dir = "./sf2"
@@ -104,11 +104,11 @@ def restart_program():
 
 # Behavior when PREVBUTTON is pressed
 def Prev_Button_Press():
-    global LoopNumber, Preset, prev_was_held
+    global selected_loop, Preset, prev_was_held
     if not prev_was_held:
         if Mode == 0 and setup_donerecording:
-            LoopNumber = (LoopNumber - 1) % number_of_tracks
-            print('-= Prev Loop =---> ', LoopNumber,'\n')
+            selected_loop = (selected_loop - 1) % number_of_tracks
+            print('-= Prev Loop =---> ', selected_loop, '\n')
             debug()
         elif Mode == 1:
             if Preset >= 1:
@@ -118,12 +118,12 @@ def Prev_Button_Press():
 
 # Behavior when PREVBUTTON is held
 def Prev_Button_Held():
-    global Bank, prev_was_held, DispData
-    if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume >= 1:
-            loops[LoopNumber].volume -= 1
-            print('Volume Decreased=', loops[LoopNumber].volume,'\n')
-            DispData = str(loops[LoopNumber].volume)[-1]
+    global Bank, prev_was_held, display_data, Preset
+    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
+        if loops[selected_loop].volume >= 1:
+            loops[selected_loop].volume -= 1
+            print('Volume Decreased=', loops[selected_loop].volume, '\n')
+            display_data = str(loops[selected_loop].volume)[-1]
             debug()
     elif Mode == 1:
         if Bank >= 1:
@@ -133,11 +133,11 @@ def Prev_Button_Held():
 
 # Behavior when NEXTBUTTON is pressed
 def Next_Button_Press():
-    global LoopNumber, Preset, next_was_held
+    global selected_loop, Preset, next_was_held
     if not next_was_held:
         if Mode == 0 and setup_donerecording:
-            LoopNumber = (LoopNumber + 1) % number_of_tracks
-            print('-= Next Loop =---> ', LoopNumber,'\n')
+            selected_loop = (selected_loop + 1) % number_of_tracks
+            print('-= Next Loop =---> ', selected_loop, '\n')
             debug()
         if Mode == 1:
             if Preset < 125:
@@ -147,12 +147,12 @@ def Next_Button_Press():
 
 # Behavior when NEXTBUTTON is held
 def Next_Button_Held():
-    global Bank, next_was_held, DispData
-    if Mode == 0 and setup_donerecording and loops[LoopNumber].initialized:
-        if loops[LoopNumber].volume <= 9:
-            loops[LoopNumber].volume += 1
-            print('Volume Increased=', loops[LoopNumber].volume,'\n')
-            DispData = str(loops[LoopNumber].volume)[-1]
+    global Bank, next_was_held, display_data, Preset
+    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
+        if loops[selected_loop].volume <= 9:
+            loops[selected_loop].volume += 1
+            print('Volume Increased=', loops[selected_loop].volume, '\n')
+            display_data = str(loops[selected_loop].volume)[-1]
             debug()
     elif Mode == 1:
         if Bank < len(sf2_list) - 1:
@@ -163,7 +163,7 @@ def Next_Button_Held():
 # Behavior when RECBUTTON is pressed
 def Rec_Button_Pressed():
     if Mode == 0 or Mode == 1:
-        loops[LoopNumber].set_recording()
+        loops[selected_loop].set_recording()
     elif Mode == 2:
         rec_audio_session()
 
@@ -173,7 +173,7 @@ def Mute_Button_Pressed():
         global play_was_held
         if setup_donerecording:
             if not play_was_held:
-                loops[LoopNumber].toggle_mute()
+                loops[selected_loop].toggle_mute()
             play_was_held = False
 
 # Behavior when MUTEBUTTON is held
@@ -182,7 +182,7 @@ def Mute_Button_Held():
         global play_was_held
         if setup_donerecording:
             play_was_held = True
-            loops[LoopNumber].toggle_solo()
+            loops[selected_loop].toggle_solo()
     elif Mode == 2:
         export_session()
 
@@ -191,7 +191,7 @@ def Clear_Button_Pressed():
     if Mode == 0 or Mode == 1:
         global clear_was_held
         if not clear_was_held:
-            loops[LoopNumber].undo()
+            loops[selected_loop].undo()
         clear_was_held = False
 
 # Behavior when CLEARBUTTON is held
@@ -199,13 +199,13 @@ def Clear_Button_Held():
     if Mode == 0 or Mode == 1:
         global clear_was_held
         clear_was_held = True
-        loops[LoopNumber].clear()
+        loops[selected_loop].clear()
 
 #------------------------------------------------------------------------------------------------
 
 # Turns Off the Looper and exits
 def TurningOff():
-    if first_synth == 1:
+    if synth_initialized:
         fs.delete()
         print("Closing FluidSynth")
     client.deactivate()
@@ -233,7 +233,10 @@ def export_session():
     print(f"-----= Exporting Session {date_time_now}")
     for i in range(number_of_tracks):
         if loops[i].initialized:
-            audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
+            if loops[i].is_undo:
+                audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
+            else:
+                audio_buffer = (loops[i].main_audio[:loops[i].length]+loops[i].dub_audio[:loops[i].length]).tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
             output_file_name = f"./recordings/session_{date_time_now}-track_{i}.wav"
@@ -292,37 +295,37 @@ def debug():
               int(loops[i].writep), '\t|',
               int(loops[i].length))
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
-    print('length=', loops[LoopNumber].length, 'LENGTH=', LENGTH, 'length_factor=', loops[LoopNumber].length_factor)
+    print('length=', loops[selected_loop].length, 'LENGTH=', LENGTH, 'length_factor=', loops[selected_loop].length_factor)
     print('|', ' '*9,'|',' '*9,'|', ' '*9,'|',' '*9,'|')
 
 # Checks which loops are recording/playing/waiting and lights up LEDs and Display accordingly
 def show_status():
-    global DispData, dispcount
-    # If Prev / Next Buttons are Pressed, 8-seg. Display shows selected LoopNumber / Preset (depends of Mode)
-    if DispData == "":
+    global display_data, display_count
+    # If Prev / Next Buttons are Pressed, 8-seg. Display shows selected selected_loop / Preset (depends of Mode)
+    if display_data == "":
         if Mode == 0:
-            display.value = str(LoopNumber)[-1]
+            display.value = str(selected_loop)[-1]
         elif Mode == 1:
             display.value = str(Preset)[-1] + "."
         elif Mode == 2:
             display.value = " ."
     else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
-        if dispcount <= 4:
-            display.value = DispData
-            dispcount += 1
+        if display_count <= 4:
+            display.value = display_data
+            display_count += 1
         else:
-            dispcount = 0
-            DispData = ""
+            display_count = 0
+            display_data = ""
 
     # Leds Status for Rec Button ---------------------------
     if Mode == 0 or Mode == 1:
-        if loops[LoopNumber].is_recording:
+        if loops[selected_loop].is_recording:
             RECLEDR.on()
             RECLEDG.off()
-        elif loops[LoopNumber].is_waiting_rec:
+        elif loops[selected_loop].is_waiting_rec:
             RECLEDR.on()
             RECLEDG.on()
-        elif setup_donerecording or not loops[LoopNumber].is_recording:
+        elif setup_donerecording or not loops[selected_loop].is_recording:
             RECLEDR.off()
             RECLEDG.off()
     elif Mode == 2:
@@ -334,10 +337,10 @@ def show_status():
             RECLEDG.off()
 
     # Leds Status for Play Button ---------------------------
-    if loops[LoopNumber].is_waiting_play or loops[LoopNumber].is_waiting_mute:
+    if loops[selected_loop].is_waiting_play or loops[selected_loop].is_waiting_mute:
         PLAYLEDR.on()
         PLAYLEDG.on()
-    elif loops[LoopNumber].is_playing:
+    elif loops[selected_loop].is_playing:
         PLAYLEDR.off()
         PLAYLEDG.on()
     else:
@@ -351,11 +354,12 @@ def ChangePreset():
 
 # Changes the FluidSynth Bank
 def ChangeBank():
-    global DispData, sfid
-    DispData = str(Bank)[-1] + "."
+    global display_data, sfid, Preset
+    display_data = str(Bank)[-1] + "."
     fs.sfunload(sfid)
     sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
     fs.program_select(0, sfid, 0, 0)
+    Preset = 0
     print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Assign all the Capture ports to Looper Input
@@ -415,9 +419,9 @@ while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
         # Check if " INDEVICE [" is in the list of sound cards
         if (" "+str(INDEVICE)+" [") in content:
             Mode = 0
-            print("Sound card number:",str(INDEVICE)," detected\n")
+            print("Sound card number:", str(INDEVICE)," detected\n")
         else:
-            print("Sound card number:",str(INDEVICE)," NOT detected", end='\r')
+            print("Sound card number:", str(INDEVICE)," NOT detected", end='\r')
             time.sleep(0.5)
     except FileNotFoundError:
         print("This system does not have /proc/asound/cards. Not a Linux system?")
@@ -455,7 +459,7 @@ class audioloop:
         self.is_waiting_mute = False
         self.is_undo = False
         self.is_solo = False
-        self.volume = OrigVolume
+        self.volume = init_vol
         self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
         self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)  # self.main_audio contain main audio data in arrays of CHUNKs.
         self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
@@ -474,7 +478,7 @@ class audioloop:
     # read_buffer() reads and returns a buffer of audio from the loop
     def read_buffer(self):
         # Turns On 0,1s the Red Led of PLAYBUTTON to mark the starting of Master Loop
-        if loops[0].is_restarting():
+        if loops[0].initialized and loops[0].readp == 0:
             PLAYLEDR.on()
             PLAYLEDG.off()
 
@@ -484,7 +488,7 @@ class audioloop:
                 (not self.initialized and loops[0].writep == loops[0].length - 1)):
                 self.is_recording = True
                 self.is_waiting_rec = False
-                print('---= Start Recording Track ', LoopNumber, '\n')
+                print('---= Start Recording Track ', selected_loop, '\n')
 
         # If a Track is not initialized, exit and returns silence
         if not self.initialized:
@@ -513,7 +517,7 @@ class audioloop:
         if self.is_undo:
             return(self.main_audio[tmp, :])  # If Undo was pressed, plays only main_audio
         else:
-            return (self.main_audio[tmp, :] + self.dub_audio[tmp, :])  # If Undo was not pressed, plays sum of main and dub audio
+            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :])  # If Undo was not pressed, plays sum of main and dub audio
 
     # write_buffer() appends a new buffer on main_audio if not initialized or on dub_audio if initialized
     def write_buffers(self, data):
@@ -521,7 +525,7 @@ class audioloop:
         if self.initialized:
             if self.writep < self.length - 1:
                 if not self.is_undo:  # If Undo was not pressed, writes on main_audio the sum of main and dub audio
-                    self.main_audio[self.writep, :] = self.dub_audio[self.writep, :] * 0.9 + self.main_audio[self.writep, :] * 0.9
+                    self.main_audio[self.writep, :] = self.dub_audio[self.writep, :] * (init_vol/10)**2 + self.main_audio[self.writep, :] * (init_vol/10)**2
                 self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
             elif self.writep == self.length - 1:
                 self.is_recording = False
@@ -533,7 +537,7 @@ class audioloop:
                 self.length = 0
                 print('Loop Full')
                 return
-            self.main_audio[self.length, :] = np.copy(data)  # Add to main_audio the buffer entering through Jack
+            self.dub_audio[self.length, :] = np.copy(data)  # Add to main_audio the buffer entering through Jack
             self.length += 1  # Increase the length of the loop
             if not setup_donerecording:
                 LENGTH += 1
@@ -543,7 +547,7 @@ class audioloop:
     #   if initialized and not recording, set as "waiting to record"
     def set_recording(self):
         global setup_is_recording, setup_donerecording
-        print('---= set_recording Called for Track ', LoopNumber, ' =-', '\n')
+        print('---= set_recording Called for Track ', selected_loop, ' =-', '\n')
         #already_recording = False
 
         #if chosen track is currently recording, flag it
@@ -555,10 +559,11 @@ class audioloop:
                 self.is_playing = True
                 self.is_recording = False
                 self.is_waiting_rec = False
-                if LoopNumber == 0 and not setup_donerecording:
+                if selected_loop == 0 and not setup_donerecording:
                     setup_is_recording = False
                     setup_donerecording = True
-                    print('-------------= Master Track Recorded =-', '\n')
+                    print('-------------= Master Track Recorded =---', '\n')
+                debug()
                 return
         else:
             #unless flagged, schedule recording. If chosen track was recording, then stop recording
@@ -566,20 +571,12 @@ class audioloop:
             if self.is_waiting_rec and setup_donerecording:
                 self.is_waiting_rec = False
                 return
-            if LoopNumber == 0 and not setup_donerecording:
+            if selected_loop == 0 and not setup_donerecording:
                 self.is_recording = True
                 setup_is_recording = True
             else:
                 self.is_waiting_rec = True
-        debug()
-
-    #Restarting is True only when readp==0 and the loop is initialized, and is only checked after recording the Master Loop (0)
-    def is_restarting(self):
-        if not self.initialized:
-            return False
-        if self.readp == 0:
-            return True
-        return False
+            debug()
 
     #initialize() raises self.length to closest integer multiple of LENGTH and initializes read and write pointers
     def initialize(self): #It initializes when recording of loop stops. It de-initializes after Clearing.
@@ -596,21 +593,10 @@ class audioloop:
             print('     last buffer recorded ' + str(self.writep),'\n')
             print('-------------= Initialized =---', '\n')
 
-            # Apply Fades at the start and end buffers of main_audio
-            self.apply_fade(self.main_audio)
-        else:
-            # Apply Fades to dub_audio if already initialized
-            self.apply_fade(self.dub_audio)
+        # Apply Fades to dub_audio recently recorded
+        np.multiply(self.dub_audio[0], fade_in, out = self.dub_audio[0], casting = 'unsafe')  # Fade In to the first buffer
+        np.multiply(self.dub_audio[self.length-1], fade_out, out=self.dub_audio[self.length-1], casting='unsafe')  # Fade Out to the last buffer
         debug()
-
-    def apply_fade(self, audio):
-        # Apply fade-in and fade-out to an audio buffer
-        fade_in = np.linspace(0, 1, CHUNK)
-        fade_out = np.linspace(1, 0, CHUNK)
-        # Fade-in in the first buffer
-        audio[0] = audio[0] * fade_in
-        # Fade-out in the last buffer
-        audio[self.writep] = audio[self.writep] * fade_out
 
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
@@ -636,13 +622,13 @@ class audioloop:
         if self.initialized:
             if not self.is_solo:
                 for i in range(number_of_tracks):
-                    if i != LoopNumber and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
+                    if i != selected_loop and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
                         loops[i].is_waiting_mute = True
                 self.is_solo = True
                 print('-------------= Solo =-', '\n')
             else:
                 for i in range (number_of_tracks):
-                    if i != LoopNumber and loops[i].initialized:
+                    if i != selected_loop and loops[i].initialized:
                         loops[i].is_waiting_play = True
                         loops[i].is_solo = False
                 self.is_solo = False
@@ -654,7 +640,7 @@ class audioloop:
         if self.is_recording:
             if not self.initialized:
                 self.clear_track()
-                if LoopNumber == 0:
+                if selected_loop == 0:
                     LENGTH = 0
                 return
         if self.is_playing:
@@ -665,7 +651,7 @@ class audioloop:
     # Clears all the Tracks of the looper
     def clear(self):
         global setup_donerecording, setup_is_recording, LENGTH
-        if LoopNumber == 0:
+        if selected_loop == 0:
             for loop in loops:
                 loop.__init__()
             setup_donerecording = False
@@ -687,12 +673,11 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 # Audio Processing Callback
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer
-    global LENGTH, ti_mer, first_run
+    global play_buffer, current_rec_buffer, first_run
 
-    if first_run < 0.5 * RATE / CHUNK:  # Little pause before starting the loopback
-        first_run += 1
-        print(first_run, end='\r')
+    if first_run > 1:  # Little pause before starting the loopback
+        first_run -= 1
+        print(first_run, "   ", end='\r')
         return
 
     # Setup: First Recording
@@ -765,7 +750,7 @@ with client:
             print('---FluidSynth Jack Loading---', '\n')
             # Start FluidSynth
             fs.start()
-            first_synth = 1
+            synth_initialized = True
             connect_fluidsynth()
             time.sleep(0.5)
             # Loads the first soundfont of the list
