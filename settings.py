@@ -17,8 +17,6 @@ parameters[3] = (input('Enter Input Device Index ([0], 1, 2, ...): ') or "0") + 
 parameters[4] = (input('Enter Output Device Index ([0], 1, 2, ...): ') or "0") + '\n'
 parameters[5] = (input('Enter Margin for Late Button Press in Milliseconds (Around [1200] seems to work well) : ') or "1200") + '\n'
 parameters[6] = (input('Enter [0] to connect all Jack Capture Ports to RasPyLooper Input port, or\nEnter (n) to connect only Jack Capture Port n to RasPyLooper Input port: ') or "0") + '\n'
-parameters[7] = (input('Enter Jack Capture Port for Guitarix (1, 2, 3, [4], ...): ') or "4") + '\n'
-
 
 f = open('./settings.prt', 'w')
 for i in range(8):

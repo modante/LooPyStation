@@ -9,15 +9,15 @@ import io
 from datetime import datetime
 sys.path.append('./pyfluidsynth')
 import fluidsynth
+from itertools import groupby
 
 print('\n', '--- Starting LooPyStation... ---', '\n')
 
-# Get configuration (audio settings etc.) from file
+# Get configuration (audio settings, etc.) from file
 settings_file = open('./settings.prt', 'r')
 parameters = settings_file.readlines()
 settings_file.close()
 
-# Variables Initialization
 RATE = int(parameters[0])  # Sample rate
 CHUNK = int(parameters[1])  # Buffer size
 latency_in_milliseconds = int(parameters[2])
@@ -28,47 +28,52 @@ overshoot_in_milliseconds = int(parameters[5])  # Allowance in milliseconds for 
 OVERSHOOT = round((overshoot_in_milliseconds/1000) * (RATE/CHUNK))  # Allowance in buffers
 MAXLENGTH = int(12582912 / CHUNK)  # 96mb of audio in total
 LENGTH = 0  # Length of the first recording of or Master Track (0). All subsequent recordings quantized to a multiple of this.
+JACK_CAPTURE_PORTS = int(parameters[6])
+
+# Variables Initialization
 number_of_tracks = 16
 selected_loop = 0  # Pointer to the selected Loop/Track
 setup_is_recording = False  # Set to True when track 1 recording button is first pressed
 setup_donerecording = False  # Set to true when first track 1 recording is done
-Mode = 3
-Preset = 0
-Bank = 0
-sfid = 0
-init_vol = 7
-display_data = ""
-display_count = 0
-first_run = int(0.5 * RATE / CHUNK)
-synth_initialized = False
-rec_file = False
+Mode = 3  # Pointer to the Mode for UI
+Preset = 0  # Pointer to the Selected Preset
+Bank = 0  # Pointer to the Selected Bank
+Session = 0  # Pointer to the Selected Session to Import
+sfid = 0  # SoundFont id of the Loaded Bank
+init_vol = 7  # Initial volume for each Track
+display_data = ""  # Alternative info to show on Display
+display_count = 0  # Timer to show alternative info on Display
+pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop callback
+synth_initialized = False  # Flag
+rec_file = False  # Flag
 
-rec_was_held = False  # Flags for Buttons Held
-play_was_held = False
-clear_was_held = False
-prev_was_held = False
-next_was_held = False
-mode_was_held = False
 
 # Buttons, Leds and 8-Segments Display
-debounce_length = 0.05  # Length in seconds of button debounce period
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
 PLAYLEDR = (LED(26, active_high=False))
 PLAYLEDG = (LED(20, active_high=False))
 RECLEDR = (LED(0, active_high=False))
 RECLEDG = (LED(1, active_high=False))
+
+debounce_length = 0.05  # Length in seconds of button debounce period
 RECBUTTON = (Button(18, bounce_time=debounce_length))
 RECBUTTON.hold_time = 0.5
+rec_was_held = False
 PLAYBUTTON = (Button(15, bounce_time=debounce_length))
 PLAYBUTTON.hold_time = 0.5
+play_was_held = False
 CLEARBUTTON = (Button(17, bounce_time=debounce_length))
 CLEARBUTTON.hold_time = 0.5
+clear_was_held = False
 PREVBUTTON = (Button(5, bounce_time=debounce_length))
 PREVBUTTON.hold_time = 0.5
+prev_was_held = False
 NEXTBUTTON = (Button(12, bounce_time=debounce_length))
 NEXTBUTTON.hold_time = 0.5
+next_was_held = False
 MODEBUTTON = (Button(6, bounce_time=debounce_length))
 MODEBUTTON.hold_time = 2.5
+mode_was_held = False
 
 play_buffer = np.zeros([CHUNK], dtype=np.int16)  # Buffer to hold mixed audio from all tracks
 silence = np.zeros([CHUNK], dtype=np.int16)  # A buffer containing silence
@@ -77,21 +82,42 @@ output_volume = np.float32(1.0)  # Mixed output (sum of audio from tracks) is mu
 fade_in = np.linspace(0, 1, CHUNK)
 fade_out = np.linspace(1, 0, CHUNK)
 
-# Get a list of all files in the directory ./sf2
-sf2_dir = "./sf2"
-sf2_list = sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])  # Put all the detected files alphabetically on an array
-
 # ------- END of Variables and Flags ------
 
 print('Rate: ' + str(RATE) + ' / CHUNK: ', str(CHUNK), '\n')
 print('Latency correction (buffers): ', str(LATENCY), '\n')
+
+# Get a list of all files in the directory ./sf2
+sf2_dir = "./sf2"
+sf2_list = sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])  # Put all the detected files alphabetically on an array
+
+# Get a list of all files in the directory ./recordings
+recordings_dir = "./recordings"
+recordings_list = sorted([f for f in os.listdir(recordings_dir) if os.path.isfile(os.path.join(recordings_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
+if len(recordings_list) > 0:
+    # Group by first 27 characters
+    grouped_recordings = {
+        key: list(files)
+        for key, files in groupby(recordings_list, key=lambda x: x[:27])
+    }
+    # Get the last group
+    if grouped_recordings:
+        sessions = sorted(list(grouped_recordings.keys()), reverse=True)
+        selected_session = grouped_recordings[sessions[Session]]
+        print(f"Last Group: {selected_session}")
+        for file in selected_session:
+            print(f"  - {file}")
+        selected_session_size = len(selected_session)  # Count the elements
+        print('\n', f"Last Group '{selected_session}' has {selected_session_size} files.")
+else:
+    print("No Last Session found.", '\n')
 
 # ----------- USER INTERFACE --------------
 # Behavior when MODEBUTTON is pressed
 def Change_Mode():
     global Mode, mode_was_held, audio_buffer, rec_file
     if not mode_was_held:
-        Mode = (Mode + 1) % 4  # Change to the next Mode
+        Mode = (Mode + 1) % 3  # Change to the next Mode
         print('----------= Changed to Mode=', str(Mode), '\n')
     mode_was_held = False
 
@@ -104,7 +130,7 @@ def restart_program():
 
 # Behavior when PREVBUTTON is pressed
 def Prev_Button_Press():
-    global selected_loop, Preset, prev_was_held
+    global selected_loop, Preset, prev_was_held, Session, display_data
     if not prev_was_held:
         if Mode == 0 and setup_donerecording:
             selected_loop = (selected_loop - 1) % number_of_tracks
@@ -114,6 +140,11 @@ def Prev_Button_Press():
             if Preset >= 1:
                 Preset -= 1
                 ChangePreset()
+        elif Mode == 2:
+            if Session >= 1:
+                Session -= 1
+                print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
+                display_data = str(Session)[-1]
     prev_was_held = False
 
 # Behavior when PREVBUTTON is held
@@ -133,7 +164,7 @@ def Prev_Button_Held():
 
 # Behavior when NEXTBUTTON is pressed
 def Next_Button_Press():
-    global selected_loop, Preset, next_was_held
+    global selected_loop, Preset, next_was_held, Session, display_data
     if not next_was_held:
         if Mode == 0 and setup_donerecording:
             selected_loop = (selected_loop + 1) % number_of_tracks
@@ -143,6 +174,11 @@ def Next_Button_Press():
             if Preset < 125:
                 Preset += 1
                 ChangePreset()
+        elif Mode == 2:
+            if Session < len(sessions) - 1:
+                Session += 1
+                print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
+                display_data = str(Session)[-1]
     next_was_held = False
 
 # Behavior when NEXTBUTTON is held
@@ -184,7 +220,10 @@ def Mute_Button_Held():
             play_was_held = True
             loops[selected_loop].toggle_solo()
     elif Mode == 2:
-        export_session()
+        if setup_donerecording:
+            export_session()
+        else:
+            print("Nothing to Export")
 
 # Behavior when CLEARBUTTON is pressed
 def Clear_Button_Pressed():
@@ -200,6 +239,8 @@ def Clear_Button_Held():
         global clear_was_held
         clear_was_held = True
         loops[selected_loop].clear()
+    elif Mode == 2:
+        import_session()
 
 #------------------------------------------------------------------------------------------------
 
@@ -239,9 +280,53 @@ def export_session():
                 audio_buffer = (loops[i].main_audio[:loops[i].length]+loops[i].dub_audio[:loops[i].length]).tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
-            output_file_name = f"./recordings/session_{date_time_now}-track_{i}.wav"
+            output_file_name = "./recordings/session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + ".wav"
             audio_segment.export(output_file_name, format="wav")  # Write file to disk
             print("   * Session Track - file saved: ", output_file_name)
+
+def import_session():
+    if len(recordings_list) > 0:
+        global setup_donerecording, setup_is_recording, selected_loop, pause_callback
+        selected_session = grouped_recordings[sessions[Session]]
+        print(f"-----= Importing Session {selected_session}")
+        pause_callback = 300  # "Pauses" the loop callback
+        for loop in loops:
+            loop.__init__()  # Initialize ALL
+        for file in selected_session:
+            if len(file) >= 36:  # Make sure the file is at least 36 characters long
+                session_track_number = int(file[34:36])  # Extract the chars 35 and 36 that are the Track Number
+                print(f"Archivo: {file} ---> Track: {session_track_number}")
+                session_file_path = "./recordings/" + file
+                load_wav_to_main_audio(session_file_path, session_track_number)
+            else:
+                print(f"El archivo '{file}' no tiene suficientes caracteres.")
+        setup_donerecording = True
+        setup_is_recording = False
+        selected_loop = 0
+        print("---= Session Imported Succesfully :-D =---", '\n')
+
+def load_wav_to_main_audio(session_file_path, session_track_number):
+    global LENGTH
+    try:
+        # Cargar el archivo de audio
+        audio_segment = AudioSegment.from_file(session_file_path, format="wav")
+        # Convertir a NumPy
+        audio_data = np.array(audio_segment.get_array_of_samples(), dtype=np.int16)
+        # Calcular la longitud en bloques CHUNK
+        num_blocks = len(audio_data) // CHUNK
+
+        # Volcar la data a main_audio
+        loops[session_track_number].initialized = True
+        loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
+        if session_track_number == 0:
+            LENGTH = num_blocks
+        loops[session_track_number].length = num_blocks
+        loops[session_track_number].writep = num_blocks - 1
+        loops[session_track_number].length_factor = loops[session_track_number].length / loops[0].length
+        loops[session_track_number].is_playing = True
+        print(f"Track: {session_track_number} - Archivo cargado: {session_file_path} | Longitud: {num_blocks} bloques.")
+    except Exception as e:
+        print(f"Error al cargar {session_file_path}: {e}")
 
 # Converts pcm2float array
 def pcm2float(sig, dtype='float32'):
@@ -294,7 +379,7 @@ def debug():
               int(loops[i].readp), '\t|',
               int(loops[i].writep), '\t|',
               int(loops[i].length))
-    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording)
+    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording, 'output_volume=', str(output_volume)[0:4])
     print('length=', loops[selected_loop].length, 'LENGTH=', LENGTH, 'length_factor=', loops[selected_loop].length_factor)
     print('|', ' '*9,'|',' '*9,'|', ' '*9,'|',' '*9,'|')
 
@@ -673,11 +758,11 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 # Audio Processing Callback
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer, first_run
+    global play_buffer, current_rec_buffer, pause_callback, output_volume
 
-    if first_run > 1:  # Little pause before starting the loopback
-        first_run -= 1
-        print(first_run, "   ", end='\r')
+    if pause_callback > 1:  # Little pause before starting the loopback
+        pause_callback -= 1
+        print(pause_callback, "   ", end='\r')
         return
 
     # Setup: First Recording

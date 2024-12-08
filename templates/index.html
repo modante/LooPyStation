@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Control en Tiempo Real - Raspberry Pi</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="https://cdn.socket.io/4.3.2/socket.io.min.js"></script>
+</head>
+<body>
+    <h1>Control de Raspberry Pi en Tiempo Real</h1>
+
+    <!-- Botón para ejecutar la función -->
+    <button id="ejecutarBtn">Ejecutar Función</button>
+
+    <div id="resultado"></div>
+
+    <script>
+        // Conectar al servidor WebSocket
+        const socket = io.connect('http://' + document.domain + ':' + location.port);
+
+        // Cuando el botón es presionado, enviar el evento 'ejecutar_funcion' al servidor
+        $('#ejecutarBtn').click(function() {
+            socket.emit('ejecutar_funcion');  // Emitir evento al servidor
+        });
+
+        // Escuchar el evento 'funcion_completada' que el servidor emite cuando la función se ha completado
+        socket.on('funcion_completada', function(data) {
+            $('#resultado').text(data.message);  // Mostrar el mensaje de éxito
+        });
+    </script>
+</body>
+</html>
