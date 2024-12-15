@@ -9,7 +9,6 @@ import io
 from datetime import datetime
 sys.path.append('./pyfluidsynth')
 import fluidsynth
-from itertools import groupby
 
 print('\n', '--- Starting LooPyStation... ---', '\n')
 
@@ -45,7 +44,11 @@ display_data = ""  # Alternative info to show on Display
 display_count = 0  # Timer to show alternative info on Display
 pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop callback
 synth_initialized = False  # Flag
+set_recording_file = False  # Flag
 rec_file = False  # Flag
+sf2_dir = "./sf2/"
+sessions_dir = "./sessions/"
+recordings_dir = "./recordings/"
 
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
@@ -87,27 +90,34 @@ print('Rate: ' + str(RATE) + ' / CHUNK: ', str(CHUNK), '\n')
 print('Latency correction (buffers): ', str(LATENCY), '\n')
 
 # Get a list of all files in the directory ./sf2
-sf2_dir = "./sf2"
-sf2_list = sorted([f for f in os.listdir(sf2_dir) if os.path.isfile(os.path.join(sf2_dir, f))])  # Put all the detected files alphabetically on an array
+sf2_list = sorted(
+    [f for f in os.listdir(sf2_dir)
+     if os.path.isfile(os.path.join(sf2_dir, f)) and f.lower().endswith('.sf2')])  # Put all the detected files alphabetically on an array
 
 # Get a list of all files in the directory ./recordings
-recordings_dir = "./recordings"
-recordings_list = sorted([f for f in os.listdir(recordings_dir) if os.path.isfile(os.path.join(recordings_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
-if len(recordings_list) > 0:
+sessions_list = sorted(
+    [f for f in os.listdir(sessions_dir)
+     if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
+
+# Show the files of the last exported session
+if len(sessions_list) > 0:
     # Group by first 27 characters
-    grouped_recordings = {
-        key: list(files)
-        for key, files in groupby(recordings_list, key=lambda x: x[:27])
-    }
+    grouped_sessions = {}
+    for file in sessions_list:
+        key = file[:27]
+        if key not in grouped_sessions:
+            grouped_sessions[key] = []
+        grouped_sessions[key].append(file)
+
     # Get the last group
-    if grouped_recordings:
-        sessions = sorted(list(grouped_recordings.keys()), reverse=True)
-        selected_session = grouped_recordings[sessions[Session]]
-        print(f"Last Group: {selected_session}")
+    if grouped_sessions:
+        sessions = sorted(grouped_sessions.keys(), reverse=True)
+        selected_session = grouped_sessions[sessions[Session]]
+        print(f"Last Session: {sessions[Session]}")
         for file in selected_session:
             print(f"  - {file}")
         selected_session_size = len(selected_session)  # Count the elements
-        print('\n', f"Last Group '{selected_session}' has {selected_session_size} files.")
+        print(f"Last Session '{sessions[Session]}' has {selected_session_size} files.", '\n')
 else:
     print("No Last Session found.", '\n')
 
@@ -254,21 +264,21 @@ def TurningOff():
     print('Done...')
 
 def rec_audio_session():
-    global audio_buffer, rec_file
+    global audio_buffer, set_recording_file
     if not rec_file:  # If Flag to record on disk is False
         audio_buffer = io.BytesIO()  # Creates Audio Buffer to be recorded on Disk
-        rec_file = True  # Flag to Start Recording on disk by the loop_callback
+        set_recording_file = True  # Flag to Start Recording on disk by the loop_callback
         print("---= Recording to file =---")
     else:
         audio_buffer.seek(0)
         audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
         date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-        output_file_name = f"./recordings/LooPyStation_output_{date_time_now}.mp3"
+        output_file_name = f"{recordings_dir}LooPyStation_output_{date_time_now}.mp3"
         audio_segment.export(output_file_name, format="mp3", bitrate="320k")  # Write file to disk
         print("---= MP3 File saved like: ", output_file_name)
-        rec_file = False  # Flag to Stop Recording on disk by the loop_callback
+        set_recording_file = False  # Flag to Stop Recording on disk by the loop_callback
 
-def export_session():
+def export_session():  # In Mode 2, holding Mute Button, exports all the initialized tracks to wav
     date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     print(f"-----= Exporting Session {date_time_now}")
     for i in range(number_of_tracks):
@@ -279,47 +289,46 @@ def export_session():
                 audio_buffer = (loops[i].main_audio[:loops[i].length]+loops[i].dub_audio[:loops[i].length]).tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
-            output_file_name = "./recordings/session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + ".wav"
+            output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + "-" + str(loops[i].volume).zfill(2) + ".wav"
             audio_segment.export(output_file_name, format="wav")  # Write file to disk
             print("   * Session Track - file saved: ", output_file_name)
 
-def import_session():
-    if len(recordings_list) > 0:
+def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
+    if len(sessions_list) > 0:
         global setup_donerecording, setup_is_recording, selected_loop, pause_callback
-        selected_session = grouped_recordings[sessions[Session]]
-        print(f"-----= Importing Session {selected_session}")
+        selected_session = grouped_sessions[sessions[Session]]
+        print(f"-----= Importing Session {sessions[Session]}")
         pause_callback = 300  # "Pauses" the loop callback
         for loop in loops:
             loop.__init__()  # Initialize ALL
         for file in selected_session:
-            if len(file) >= 36:  # Make sure the file is at least 36 characters long
+            if len(file) >= 39:  # Make sure the file is at least 36 characters long
                 session_track_number = int(file[34:36])  # Extract the chars 35 and 36 that are the Track Number
-                print(f"Archivo: {file} ---> Track: {session_track_number}")
-                session_file_path = "./recordings/" + file
-                load_wav_to_main_audio(session_file_path, session_track_number)
+                session_track_volume = int(file[37:39])  # Extract the chars 38 and 39 that are the Track Volume
+                print(f"File: {file} ---> Track: {session_track_number}")
+                session_file_path = sessions_dir + file
+                load_wav_to_main_audio(session_file_path, session_track_number, session_track_volume)
             else:
-                print(f"El archivo '{file}' no tiene suficientes caracteres.")
+                print(f"The file '{file}' has not enough chars in the name.")
         setup_donerecording = True
         setup_is_recording = False
         selected_loop = 0
         print("---= Session Imported Succesfully :-D =---", '\n')
 
-def load_wav_to_main_audio(session_file_path, session_track_number):
+def load_wav_to_main_audio(session_file_path, session_track_number, session_track_volume):
     global LENGTH
     try:
-        # Cargar el archivo de audio
-        audio_segment = AudioSegment.from_file(session_file_path, format="wav")
-        # Convertir a NumPy
-        audio_data = np.array(audio_segment.get_array_of_samples(), dtype=np.int16)
-        # Calcular la longitud en bloques CHUNK
-        num_blocks = len(audio_data) // CHUNK
+        audio_segment = AudioSegment.from_file(session_file_path, format="wav")  # Loads wav file
+        audio_data = np.array(audio_segment.get_array_of_samples(), dtype=np.int16)  # Convert to NumPy
+        num_blocks = len(audio_data) // CHUNK  # Length in Chunks
 
-        # Volcar la data a main_audio
+        # Copy the data to main_audio and restore initializations, lengths, length_factors and writep
         loops[session_track_number].initialized = True
         loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
         if session_track_number == 0:
             LENGTH = num_blocks
         loops[session_track_number].length = num_blocks
+        loops[session_track_number].volume = session_track_volume
         loops[session_track_number].writep = num_blocks - 1
         loops[session_track_number].length_factor = loops[session_track_number].length / loops[0].length
         loops[session_track_number].is_playing = True
@@ -562,9 +571,14 @@ class audioloop:
     # read_buffer() reads and returns a buffer of audio from the loop
     def read_buffer(self):
         # Turns On 0,1s the Red Led of PLAYBUTTON to mark the starting of Master Loop
-        if loops[0].initialized and loops[0].readp == 0:
+        global rec_file
+        if setup_donerecording and loops[0].readp == 0:
             PLAYLEDR.on()
             PLAYLEDG.off()
+            if set_recording_file:
+                rec_file = True
+            else:
+                rec_file = False
 
         # If a Track is_waiting_rec, put it to Rec when reaches the end of length of track 0 (not initialized) or at end of selected track (if initialized)
         if self.is_waiting_rec:
@@ -759,7 +773,7 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 def looping_callback(frames):
     global play_buffer, current_rec_buffer, pause_callback, output_volume
 
-    if pause_callback > 1:  # Little pause before starting the loopback
+    if pause_callback > 1:  # Little "pause" for the the loopback
         pause_callback -= 1
         print(pause_callback, "   ", end='\r')
         return
