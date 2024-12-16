@@ -94,32 +94,12 @@ sf2_list = sorted(
     [f for f in os.listdir(sf2_dir)
      if os.path.isfile(os.path.join(sf2_dir, f)) and f.lower().endswith('.sf2')])  # Put all the detected files alphabetically on an array
 
-# Get a list of all files in the directory ./recordings
-sessions_list = sorted(
-    [f for f in os.listdir(sessions_dir)
-     if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
-
-# Show the files of the last exported session
-if len(sessions_list) > 0:
-    # Group by first 27 characters
-    grouped_sessions = {}
-    for file in sessions_list:
-        key = file[:27]
-        if key not in grouped_sessions:
-            grouped_sessions[key] = []
-        grouped_sessions[key].append(file)
-
-    # Get the last group
-    if grouped_sessions:
-        sessions = sorted(grouped_sessions.keys(), reverse=True)
-        selected_session = grouped_sessions[sessions[Session]]
-        print(f"Last Session: {sessions[Session]}")
-        for file in selected_session:
-            print(f"  - {file}")
-        selected_session_size = len(selected_session)  # Count the elements
-        print(f"Last Session '{sessions[Session]}' has {selected_session_size} files.", '\n')
-else:
-    print("No Last Session found.", '\n')
+def list_sessions():
+    # Get a list of all files in the directory ./recordings
+    sessions_list = sorted(
+        [f for f in os.listdir(sessions_dir)
+         if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith(
+            '.wav')])  # Put all the detected files alphabetically on an array
 
 # ----------- USER INTERFACE --------------
 # Behavior when MODEBUTTON is pressed
@@ -292,6 +272,8 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
             output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + "-" + str(loops[i].volume).zfill(2) + ".wav"
             audio_segment.export(output_file_name, format="wav")  # Write file to disk
             print("   * Session Track - file saved: ", output_file_name)
+    list_sessions()
+    print("Session 'session_" + str(date_time_now) + "' SAVED Successfully")
 
 def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
     if len(sessions_list) > 0:
@@ -518,6 +500,8 @@ while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
             time.sleep(0.5)
     except FileNotFoundError:
         print("This system does not have /proc/asound/cards. Not a Linux system?")
+
+list_sessions()  # Reads all the exported sessions
 
 # Test if jack server is running and if not, run it
 if is_jack_server_running():
