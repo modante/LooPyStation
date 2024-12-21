@@ -49,6 +49,7 @@ rec_file = False  # Flag
 sf2_dir = "./sf2/"
 sessions_dir = "./sessions/"
 recordings_dir = "./recordings/"
+sessions = []
 
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
@@ -93,13 +94,25 @@ print('Latency correction (buffers): ', str(LATENCY), '\n')
 sf2_list = sorted(
     [f for f in os.listdir(sf2_dir)
      if os.path.isfile(os.path.join(sf2_dir, f)) and f.lower().endswith('.sf2')])  # Put all the detected files alphabetically on an array
+print(sf2_list, '\n')
 
 def list_sessions():
     # Get a list of all files in the directory ./recordings
+    global sessions_list, selected_session, sessions
     sessions_list = sorted(
         [f for f in os.listdir(sessions_dir)
-         if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith(
-            '.wav')])  # Put all the detected files alphabetically on an array
+         if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
+    if len(sessions_list) > 0:
+        # Group by first 27 characters
+        grouped_sessions = {}
+        for file in sessions_list:
+            key = file[:27]
+            if key not in grouped_sessions:
+                grouped_sessions[key] = []
+            grouped_sessions[key].append(file)
+        sessions = sorted(grouped_sessions.keys(), reverse=True)
+        selected_session = grouped_sessions[sessions[Session]]
+        print(grouped_sessions)
 
 # ----------- USER INTERFACE --------------
 # Behavior when MODEBUTTON is pressed
@@ -180,9 +193,10 @@ def Next_Button_Held():
             display_data = str(loops[selected_loop].volume)[-1]
             debug()
     elif Mode == 1:
-        if Bank < len(sf2_list) - 1:
-            Bank += 1
-            ChangeBank()
+        if len(sf2_list) > 0:
+            if Bank < len(sf2_list) - 1:
+                Bank += 1
+                ChangeBank()
     next_was_held = True
 
 # Behavior when RECBUTTON is pressed
@@ -277,9 +291,9 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
 
 def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
     if len(sessions_list) > 0:
+        list_sessions()
         global setup_donerecording, setup_is_recording, selected_loop, pause_callback
-        selected_session = grouped_sessions[sessions[Session]]
-        print(f"-----= Importing Session {sessions[Session]}")
+        print(f"-----= Importing Session {selected_session}")
         pause_callback = 300  # "Pauses" the loop callback
         for loop in loops:
             loop.__init__()  # Initialize ALL
@@ -424,18 +438,20 @@ def show_status():
 
 # Changes the FluidSynth Preset
 def ChangePreset():
-    fs.program_select(0, sfid, 0, Preset)
-    print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
+    if len(sf2_list) > 0:
+        fs.program_select(0, sfid, 0, Preset)
+        print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Changes the FluidSynth Bank
 def ChangeBank():
-    global display_data, sfid, Preset
-    display_data = str(Bank)[-1] + "."
-    fs.sfunload(sfid)
-    sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
-    fs.program_select(0, sfid, 0, 0)
-    Preset = 0
-    print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
+    if len(sf2_list) > 0:
+        global display_data, sfid, Preset
+        display_data = str(Bank)[-1] + "."
+        fs.sfunload(sfid)
+        sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
+        fs.program_select(0, sfid, 0, 0)
+        Preset = 0
+        print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Assign all the Capture ports to Looper Input
 def all_captures_to_input():
@@ -508,7 +524,7 @@ if is_jack_server_running():
     Mode = 0
     print("----- Jack Server is already running ------",'\n')
 else:
-    os.system ("sudo -H -u raspi dbus-launch jackd -dalsa -r"+str(RATE)+" -p"+str(CHUNK)+" -n2 -Xraw -D -Chw:"+str(INDEVICE)+" -Phw:"+str(OUTDEVICE)+" &")
+    os.system ("sudo -H -u raspi env JACK_NO_AUDIO_RESERVATION=1 jackd -dalsa -r"+str(RATE)+" -p"+str(CHUNK)+" -n2 -Xraw -D -Chw:"+str(INDEVICE)+" -Phw:"+str(OUTDEVICE)+" &")
     print("----- Jack Server is NOT running. Starting it!",'\n')
     for i in range(2):
         if i % 2 == 0:
@@ -820,7 +836,7 @@ with client:
 
         # If a MIDI Capture Port exists, Load FluidSynth
         target_port = 'system:midi_capture_1'
-        if any(port.name == target_port for port in outMIDIports):
+        if any(port.name == target_port for port in outMIDIports) and len(sf2_list) > 0:
             fs = fluidsynth.Synth()  # Loads FluidSynth but remains inactive
             fs.setting("audio.driver", 'jack')
             fs.setting("midi.driver", 'jack')
@@ -836,9 +852,8 @@ with client:
             connect_fluidsynth()
             time.sleep(0.5)
             # Loads the first soundfont of the list
-            if len(sf2_list) > 0:
-                sfid = fs.sfload("./sf2/" + sf2_list[0])
-                fs.program_select(0, sfid, 0, 0)
+            sfid = fs.sfload("./sf2/" + sf2_list[0])
+            fs.program_select(0, sfid, 0, 0)
             print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
         #then we turn on Green and Red lights of REC Button to indicate that looper is ready to start looping
