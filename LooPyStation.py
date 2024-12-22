@@ -39,7 +39,7 @@ Preset = 0  # Pointer to the Selected Preset
 Bank = 0  # Pointer to the Selected Bank
 Session = 0  # Pointer to the Selected Session to Import
 sfid = 0  # SoundFont id of the Loaded Bank
-init_vol = 6  # Initial volume for each Track
+init_vol = 7  # Initial volume for each Track
 display_data = ""  # Alternative info to show on Display
 display_count = 0  # Timer to show alternative info on Display
 pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop callback
@@ -50,6 +50,7 @@ sf2_dir = "./sf2/"
 sessions_dir = "./sessions/"
 recordings_dir = "./recordings/"
 sessions = []
+max_amplitude = 32767
 
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
@@ -112,12 +113,12 @@ def list_sessions():
             grouped_sessions[key].append(file)
         sessions = sorted(grouped_sessions.keys(), reverse=True)
         selected_session = grouped_sessions[sessions[Session]]
-        print(grouped_sessions)
+        print(sessions)
 
 # ----------- USER INTERFACE --------------
 # Behavior when MODEBUTTON is pressed
 def Change_Mode():
-    global Mode, mode_was_held, audio_buffer, rec_file
+    global Mode, mode_was_held, audio_buffer
     if not mode_was_held:
         Mode = (Mode + 1) % 3  # Change to the next Mode
         print('----------= Changed to Mode=', str(Mode), '\n')
@@ -280,7 +281,8 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
             if loops[i].is_undo:
                 audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
             else:
-                audio_buffer = (loops[i].main_audio[:loops[i].length]+loops[i].dub_audio[:loops[i].length]).tobytes()
+                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length] * (init_vol/10)**2).tobytes()
+            #audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
             output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + "-" + str(loops[i].volume).zfill(2) + ".wav"
@@ -310,6 +312,7 @@ def import_session():  # In Mode 2, holding Undo Button, imports the selected (w
         setup_is_recording = False
         selected_loop = 0
         print("---= Session Imported Succesfully :-D =---", '\n')
+        debug()
 
 def load_wav_to_main_audio(session_file_path, session_track_number, session_track_volume):
     global LENGTH
@@ -369,7 +372,7 @@ def PowerOffLeds():
 
 # Debug prints info on stdout
 def debug():
-    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|ReaP\t|WriP\t|Leng')
+    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|MaxP\t|WriP\t|Leng')
     for i in range(number_of_tracks):
         print(str(i).zfill(2), ' |',
               int(loops[i].initialized), '  |',
@@ -380,7 +383,7 @@ def debug():
               int(loops[i].is_waiting_mute), '  |',
               int(loops[i].is_solo), '  |',
               int(loops[i].volume), '\t|',
-              int(loops[i].readp), '\t|',
+              int(loops[i].maxpeak), '\t|',
               int(loops[i].writep), '\t|',
               int(loops[i].length))
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording, 'output_volume=', str(output_volume)[0:4])
@@ -543,6 +546,7 @@ class audioloop:
         self.initialized = False
         self.length_factor = 1
         self.length = 0
+        self.maxpeak = 0
         self.readp = 0
         self.writep = 0
         self.is_recording = False
@@ -615,11 +619,12 @@ class audioloop:
         if self.is_undo:
             return(self.main_audio[tmp, :])  # If Undo was pressed, plays only main_audio
         else:
-            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :])  # If Undo was not pressed, plays sum of main and dub audio
+            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :] * (init_vol/10)**2)  # If Undo was not pressed, plays sum of main and dub audio
 
     # write_buffer() appends a new buffer on main_audio if not initialized or on dub_audio if initialized
     def write_buffers(self, data):
         global LENGTH
+        self.maxpeak = max(np.max(np.abs(data))/max_amplitude*100, self.maxpeak)
         if self.initialized:
             if self.writep < self.length - 1:
                 if not self.is_undo:  # If Undo was not pressed, writes on main_audio the sum of main and dub audio
@@ -771,9 +776,10 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 # Audio Processing Callback
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer, pause_callback, output_volume
+    global play_buffer, current_rec_buffer, pause_callback, output_volume, previous_scaling_factor
 
     if pause_callback > 1:  # Little "pause" for the the loopback
+        play_buffer[:] = silence
         pause_callback -= 1
         print(pause_callback, "   ", end='\r')
         return
@@ -792,10 +798,31 @@ def looping_callback(frames):
             loop.write_buffers(current_rec_buffer)
 
     # Converts the volumes and buffers into NumPy arrays for vectorized operations
-    volumes = np.array([(loop.volume / 10) ** 2 for loop in loops], dtype=np.float32)
     buffers = np.array([loop.read_buffer().astype(np.int32) for loop in loops])
+    volumes = np.array([(loop.volume / 10) ** 2 for loop in loops], dtype=np.float32)
     # Multiply each buffer by the own volume and sum them all
     mixed_buffer = np.sum(buffers * volumes[:, None], axis=0)
+
+    '''
+    mixed_buffer = np.multiply(mixed_buffer, output_volume, out=None, casting='unsafe')
+    # Limiter: Ensure no values exceed the range of int16
+    peak = np.max(np.abs(mixed_buffer))  # Find the peak amplitude
+    if peak > max_amplitude:
+        # Calculate the scaling factor to limit the signal
+        target_scaling_factor = max_amplitude / peak
+        # Apply smoothing to the scaling factor (exponential smoothing)
+        smoothing_factor = 0.1  # 0.1 is the smoothing factor (you can adjust this)
+        scaling_factor = previous_scaling_factor * (1 - smoothing_factor) + target_scaling_factor * smoothing_factor
+        # Update the previous scaling factor for the next callback
+        previous_scaling_factor = scaling_factor
+        # Apply the scaling factor to the mixed buffer
+        print(f"Limiter applied. Scaling factor: {scaling_factor:.4f}", '\n')
+        mixed_buffer = mixed_buffer * scaling_factor
+    else:
+        # If no limiting is required, keep the previous scaling factor
+        previous_scaling_factor = 0.9
+        '''
+
     # Add to play_buffer the sum of each audio signal times the each own volume
     play_buffer[:] = np.multiply(mixed_buffer, output_volume, out=None, casting='unsafe').astype(np.int16)
 
