@@ -3,12 +3,13 @@ import numpy as np
 import time
 import os, sys
 from gpiozero import LED, Button, LEDCharDisplay
-from time import sleep
+from time import sleep, time
 from pydub import AudioSegment
 import io
 from datetime import datetime
 sys.path.append('./pyfluidsynth')
 import fluidsynth
+from threading import Thread, Event
 
 print('\n', '--- Starting LooPyStation... ---', '\n')
 
@@ -39,7 +40,8 @@ Preset = 0  # Pointer to the Selected Preset
 Bank = 0  # Pointer to the Selected Bank
 Session = 0  # Pointer to the Selected Session to Import
 sfid = 0  # SoundFont id of the Loaded Bank
-init_vol = 7  # Initial volume for each Track
+init_volume = 14  # Initial volume for each Track
+max_volume = 20
 display_data = ""  # Alternative info to show on Display
 display_count = 0  # Timer to show alternative info on Display
 pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop callback
@@ -51,6 +53,7 @@ sessions_dir = "./sessions/"
 recordings_dir = "./recordings/"
 sessions = []
 max_amplitude = 32767
+volume_up = True
 
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
@@ -131,6 +134,38 @@ def restart_program():
     python = sys.executable  # Gets the actual python interpreter
     os.execv(python, [python] + sys.argv)
 
+# Evento para controlar la disminución del volumen
+change_volume_event = Event()
+
+def change_volume_with_acceleration():
+    global selected_loop, display_data
+    base_interval = 0.5  # Intervalo base en segundos
+    acceleration_factor = 0.7  # Factor de aceleración
+    min_interval = 0.1  # Intervalo mínimo entre decrementos
+    while True:  # Bucle infinito para que el hilo siga ejecutándose
+        if change_volume_event.is_set():  # Comprobar si el evento está activo
+            interval = base_interval
+            while change_volume_event.is_set():  # Mientras el botón esté presionado
+                if volume_up == False:
+                    if loops[selected_loop].volume >= 1:
+                        loops[selected_loop].volume -= 1
+                        print('Volume Decreased=', loops[selected_loop].volume, '\n')
+                else:
+                    if loops[selected_loop].volume <= max_volume - 1:
+                        loops[selected_loop].volume += 1
+                        print('Volume Increased=', loops[selected_loop].volume, '\n')
+                display_data = str(loops[selected_loop].volume)[-1]
+                debug()
+                # Reducir el intervalo para acelerar
+                interval = max(min_interval, interval * acceleration_factor)
+                sleep(interval)
+        else:
+            sleep(0.1)  # Evitar uso intensivo de CPU cuando el evento no está activo
+
+# Iniciar el hilo de disminución de volumen
+volume_thread = Thread(target=change_volume_with_acceleration, daemon=True)
+volume_thread.start()
+
 # Behavior when PREVBUTTON is pressed
 def Prev_Button_Press():
     global selected_loop, Preset, prev_was_held, Session, display_data
@@ -149,16 +184,14 @@ def Prev_Button_Press():
                 print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
                 display_data = str(Session)[-1]
     prev_was_held = False
+    change_volume_event.clear()  # Detener la disminución acelerada
 
 # Behavior when PREVBUTTON is held
 def Prev_Button_Held():
-    global Bank, prev_was_held, display_data, Preset
+    global Bank, prev_was_held, volume_up
     if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
-        if loops[selected_loop].volume >= 1:
-            loops[selected_loop].volume -= 1
-            print('Volume Decreased=', loops[selected_loop].volume, '\n')
-            display_data = str(loops[selected_loop].volume)[-1]
-            debug()
+        volume_up = False
+        change_volume_event.set()  # Iniciar la disminución acelerada
     elif Mode == 1:
         if Bank >= 1:
             Bank -= 1
@@ -183,16 +216,14 @@ def Next_Button_Press():
                 print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
                 display_data = str(Session)[-1]
     next_was_held = False
+    change_volume_event.clear()
 
 # Behavior when NEXTBUTTON is held
 def Next_Button_Held():
-    global Bank, next_was_held, display_data, Preset
+    global Bank, next_was_held, volume_up
     if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
-        if loops[selected_loop].volume <= 9:
-            loops[selected_loop].volume += 1
-            print('Volume Increased=', loops[selected_loop].volume, '\n')
-            display_data = str(loops[selected_loop].volume)[-1]
-            debug()
+        volume_up = True
+        change_volume_event.set()
     elif Mode == 1:
         if len(sf2_list) > 0:
             if Bank < len(sf2_list) - 1:
@@ -281,7 +312,7 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
             if loops[i].is_undo:
                 audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
             else:
-                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length] * (init_vol/10)**2).tobytes()
+                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length] * (init_volume/max_volume)**2).tobytes()
             #audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
@@ -516,7 +547,7 @@ while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
             print("Sound card number:", str(INDEVICE)," detected\n")
         else:
             print("Sound card number:", str(INDEVICE)," NOT detected", end='\r')
-            time.sleep(0.5)
+            sleep(0.5)
     except FileNotFoundError:
         print("This system does not have /proc/asound/cards. Not a Linux system?")
 
@@ -534,7 +565,7 @@ else:
             display.value = " "
         else:
             display.value = " ."
-        time.sleep(0.5)
+        sleep(0.5)
     print("----- Jack Server is running",'\n')
 
 # Initializing JACK Client
@@ -556,7 +587,7 @@ class audioloop:
         self.is_waiting_mute = False
         self.is_undo = False
         self.is_solo = False
-        self.volume = init_vol
+        self.volume = init_volume
         self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
         self.main_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)  # self.main_audio contain main audio data in arrays of CHUNKs.
         self.dub_audio = np.zeros([MAXLENGTH, CHUNK], dtype=np.int16)
@@ -619,7 +650,7 @@ class audioloop:
         if self.is_undo:
             return(self.main_audio[tmp, :])  # If Undo was pressed, plays only main_audio
         else:
-            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :] * (init_vol/10)**2)  # If Undo was not pressed, plays sum of main and dub audio
+            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :] * (init_volume/max_volume)**2)  # If Undo was not pressed, plays sum of main and dub audio
 
     # write_buffer() appends a new buffer on main_audio if not initialized or on dub_audio if initialized
     def write_buffers(self, data):
@@ -628,7 +659,7 @@ class audioloop:
         if self.initialized:
             if self.writep < self.length - 1:
                 if not self.is_undo:  # If Undo was not pressed, writes on main_audio the sum of main and dub audio
-                    self.main_audio[self.writep, :] = self.dub_audio[self.writep, :] * (init_vol/10)**2 + self.main_audio[self.writep, :] * (init_vol/10)**2
+                    self.main_audio[self.writep, :] = self.dub_audio[self.writep, :] * (init_volume/max_volume)**2 + self.main_audio[self.writep, :] * (init_volume/max_volume)**2
                 self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
             elif self.writep == self.length - 1:
                 self.is_recording = False
@@ -799,7 +830,7 @@ def looping_callback(frames):
 
     # Converts the volumes and buffers into NumPy arrays for vectorized operations
     buffers = np.array([loop.read_buffer().astype(np.int32) for loop in loops])
-    volumes = np.array([(loop.volume / 10) ** 2 for loop in loops], dtype=np.float32)
+    volumes = np.array([(loop.volume / max_volume) ** 2 for loop in loops], dtype=np.float32)
     # Multiply each buffer by the own volume and sum them all
     mixed_buffer = np.sum(buffers * volumes[:, None], axis=0)
 
@@ -877,7 +908,7 @@ with client:
             fs.start()
             synth_initialized = True
             connect_fluidsynth()
-            time.sleep(0.5)
+            sleep(0.5)
             # Loads the first soundfont of the list
             sfid = fs.sfload("./sf2/" + sf2_list[0])
             fs.program_select(0, sfid, 0, 0)
@@ -891,7 +922,7 @@ with client:
 
         while True:
             show_status()
-            time.sleep(0.1)
+            sleep(0.1)
             pass  # Keep Client executing
 
     except KeyboardInterrupt:
