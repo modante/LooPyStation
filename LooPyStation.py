@@ -278,8 +278,8 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
     for i in range(number_of_tracks):
         if loops[i].initialized >= 1:
             if loops[i].undo_mode == 0:
-                audio_buffer = loops[i].main_audio[:loops[i].length]*(init_volume/max_volume)**2 +
-                                loops[i].dub_audio[:loops[i].length]*(init_volume/max_volume)**2
+                audio_buffer = (loops[i].main_audio[:loops[i].length]*(init_volume/max_volume)**2+
+                                loops[i].dub_audio[:loops[i].length]*(init_volume/max_volume)**2)
                 audio_buffer = audio_buffer.tobytes()
             elif loops[i].undo_mode == 1:
                 audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
