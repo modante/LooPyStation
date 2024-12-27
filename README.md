@@ -8,37 +8,42 @@ Inspired on the great Raspi Looper from RandomVertebrate https://github.com/Rand
 ![imagen](https://github.com/user-attachments/assets/7e4a752f-1773-4dce-8de1-60d16994fe0f)
 
 ### Features:
-  - **16 Tracks** (configurable) that can be selected with the Prev and Next buttons
-  - 8-Segments display to show track number and bank/preset of Fluidsynth
-  - Infinite **Overdubs** with **Undo** of the last one
+  - **16 Tracks** (configurable) that can be selected with the Prev and Next Buttons
+  - 8-Segments display to show Track number, Bank/Preset of Fluidsynth and Session to import
+  - Infinite **Overdubs** with **Undo**
+  - 3 Modes for Undo
   - **Mute/UnMute** & **Solo/Unsolo** per track synced with the starting of loop
   - **Clear** of the selected track or all the tracks (when Clear is applied on track 0)
   - Button to change **Mode** from Looper (without dot) to FluidSynth control
-  - **Volume** per track. Starts on 0.7 (from 0.0 to 1.0)
-  - The tracks can be **x times larger** than the master track (track 0)
+  - **Volume** per track pressing long Prev / Next Buttons
+  - The tracks can be **x times larger** than the Master Track (Loop 0)
   - Works with any **USB soundcard / MIDI Keyboard**
   - Export of **Audio Session** to 320kb mp3 file on ./recordings dir
   - Setup of some **settings.py** like selecting soundcard, buffers size, or overshooting
   - **Latency compensation** using latency.py
   - Sampler FluidSynth loads at boot with the first (alphabetically) soundfont file (.sf2) on ./sf2 dir. FluidSynth L+R outputs connected to Looper Input
   - Works with **Jack** which allows easy and powerfull configuration
-  - NEW: Implemented basic session export of initialized tracks to wav files
+  - NEW: Import / Export of the Initialized Tracks from / to wav files on ./sessions dir
 
 ### How to play with LooPyStation?
 - Design for 6 Buttons:
   - **Mode Button:** Switches from "Looper Mode" to "FluidSynth Mode".
     - (0) Looper Mode: Prev / Next Buttons changes Track Number (press) or Volume (hold). Rec, Undo/Clear and Mute/Solo do the same functions in Modes 0 and 1
     - (1) FluidSynth Mode: Prev / Next Buttons changes Preset Number (press) or Bank Number (hold)
-    - (2) Audio Session Recording:
-      - Pressing Rec Button to start and again to end the recording
-      - Holding Mute Button exports all the initialized tracks to wav files on ./recordings
+    - (2) Audio Session Recording / Session Export / Session Import:
+      - Pressing Rec Button to start (synced with Master Track start) and again to end the recording
+      - Holding Mute Button Exports all the initialized tracks to wav files on ./sessions
+      - Holding Undo Button Imports the selected session (changes with Prev / Next Buttons)
   - **Rec Button:** (Modes 0 and 1)
     - Press to Record. Press again to Stop Recording (Looper and FluidSynth Mode)
     - If you want to stop and discard recording: Press Undo/Clear Button while recording
   - **Undo/Clear Button:** (Modes 0 and 1)
     - When Pressed:
       - When Recording: Stops recording and resets Track.
-      - When Playing: Undo to the last Overdub recorded
+      - When Playing:
+        - First Click: Undo the last recorded Overdub
+        - Second Click: Undo the first recorded Overdub
+        - Third Click: No Undo. Overdubs first and last recordings
     - When Held:
       - Clear selected Track, even if it is Recording.
       - If track 0 is selected, Erase and Reset all the Tracks of the Looper

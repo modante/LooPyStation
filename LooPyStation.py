@@ -1,11 +1,10 @@
 import jack
 import numpy as np
 import time
-import os, sys
+import os, sys, io
 from gpiozero import LED, Button, LEDCharDisplay
 from time import sleep, time
 from pydub import AudioSegment
-import io
 from datetime import datetime
 sys.path.append('./pyfluidsynth')
 import fluidsynth
@@ -13,11 +12,10 @@ from threading import Thread, Event
 
 print('\n', '--- Starting LooPyStation... ---', '\n')
 
-# Get configuration (audio settings, etc.) from file
+# Get configuration (audio settings, etc.) from file ./settings.prt
 settings_file = open('./settings.prt', 'r')
 parameters = settings_file.readlines()
 settings_file.close()
-
 RATE = int(parameters[0])  # Sample rate
 CHUNK = int(parameters[1])  # Buffer size
 latency_in_milliseconds = int(parameters[2])
@@ -27,10 +25,10 @@ OUTDEVICE = int(parameters[4])  # Index of output device
 overshoot_in_milliseconds = int(parameters[5])  # Allowance in milliseconds for pressing 'stop recording' late
 OVERSHOOT = round((overshoot_in_milliseconds/1000) * (RATE/CHUNK))  # Allowance in buffers
 MAXLENGTH = int(12582912 / CHUNK)  # 96mb of audio in total
-LENGTH = 0  # Length of the first recording of or Master Track (0). All subsequent recordings quantized to a multiple of this.
 JACK_CAPTURE_PORTS = int(parameters[6])
 
 # Variables Initialization
+LENGTH = 0  # Length of the first recording or Master Track (0). All subsequent recordings will be quantized to a multiple of this.
 number_of_tracks = 16
 selected_loop = 0  # Pointer to the selected Loop/Track
 setup_is_recording = False  # Set to True when track 1 recording button is first pressed
@@ -41,19 +39,19 @@ Bank = 0  # Pointer to the Selected Bank
 Session = 0  # Pointer to the Selected Session to Import
 sfid = 0  # SoundFont id of the Loaded Bank
 init_volume = 14  # Initial volume for each Track
-max_volume = 20
-display_data = ""  # Alternative info to show on Display
-display_count = 0  # Timer to show alternative info on Display
-pause_callback = int(0.5 * RATE / CHUNK)  # Pauses 2 seconds approx. the loop callback
+max_volume = 20  # Max volume for each Track
+display_data = ""  # Secondary info to show on Display
+display_count = 0  # Timer to show secondary info on Display
+pause_callback = int(0.5*RATE/CHUNK)  # Pauses 2 seconds approx. the loop callback
 synth_initialized = False  # Flag
-set_recording_file = False  # Flag
-rec_file = False  # Flag
-sf2_dir = "./sf2/"
-sessions_dir = "./sessions/"
-recordings_dir = "./recordings/"
+set_recording_file = False  # Flag to set Recording Audio Session waiting to starting of Master Track
+rec_file = False  # Flag for the Recording Audio Session activity
+sf2_dir = "./sf2/"  # Dir where SoudFonts are loaded from
+sessions_dir = "./sessions/"  # Dir where Sessions will be exported / imported
+recordings_dir = "./recordings/"  # Dir where Recording of Audio Sessions will be stored
 sessions = []
 max_amplitude = 32767
-volume_up = True
+volume_up = True  # Flag to Increase/Decrease Volume of Tracks
 
 # Buttons, Leds and 8-Segments Display
 display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
@@ -100,9 +98,9 @@ sf2_list = sorted(
      if os.path.isfile(os.path.join(sf2_dir, f)) and f.lower().endswith('.sf2')])  # Put all the detected files alphabetically on an array
 print(sf2_list, '\n')
 
+# Get a list of all the Sessions Exported on directory ./sessions
 def list_sessions():
-    # Get a list of all files in the directory ./recordings
-    global sessions_list, selected_session, sessions
+    global selected_session, sessions
     sessions_list = sorted(
         [f for f in os.listdir(sessions_dir)
          if os.path.isfile(os.path.join(sessions_dir, f)) and f.lower().endswith('.wav')])  # Put all the detected files alphabetically on an array
@@ -117,6 +115,8 @@ def list_sessions():
         sessions = sorted(grouped_sessions.keys(), reverse=True)
         selected_session = grouped_sessions[sessions[Session]]
         print(sessions)
+    else:
+        print("No Exported Sessions found on dir ", str(sessions_dir), '\n')
 
 # ----------- USER INTERFACE --------------
 # Behavior when MODEBUTTON is pressed
@@ -133,38 +133,6 @@ def restart_program():
     print("Restarting App...")
     python = sys.executable  # Gets the actual python interpreter
     os.execv(python, [python] + sys.argv)
-
-# Evento para controlar la disminución del volumen
-change_volume_event = Event()
-
-def change_volume_with_acceleration():
-    global selected_loop, display_data
-    base_interval = 0.5  # Intervalo base en segundos
-    acceleration_factor = 0.7  # Factor de aceleración
-    min_interval = 0.1  # Intervalo mínimo entre decrementos
-    while True:  # Bucle infinito para que el hilo siga ejecutándose
-        if change_volume_event.is_set():  # Comprobar si el evento está activo
-            interval = base_interval
-            while change_volume_event.is_set():  # Mientras el botón esté presionado
-                if volume_up == False:
-                    if loops[selected_loop].volume >= 1:
-                        loops[selected_loop].volume -= 1
-                        print('Volume Decreased=', loops[selected_loop].volume, '\n')
-                else:
-                    if loops[selected_loop].volume <= max_volume - 1:
-                        loops[selected_loop].volume += 1
-                        print('Volume Increased=', loops[selected_loop].volume, '\n')
-                display_data = str(loops[selected_loop].volume)[-1]
-                debug()
-                # Reducir el intervalo para acelerar
-                interval = max(min_interval, interval * acceleration_factor)
-                sleep(interval)
-        else:
-            sleep(0.1)  # Evitar uso intensivo de CPU cuando el evento no está activo
-
-# Iniciar el hilo de disminución de volumen
-volume_thread = Thread(target=change_volume_with_acceleration, daemon=True)
-volume_thread.start()
 
 # Behavior when PREVBUTTON is pressed
 def Prev_Button_Press():
@@ -189,7 +157,7 @@ def Prev_Button_Press():
 # Behavior when PREVBUTTON is held
 def Prev_Button_Held():
     global Bank, prev_was_held, volume_up
-    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
+    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized >= 1:
         volume_up = False
         change_volume_event.set()  # Iniciar la disminución acelerada
     elif Mode == 1:
@@ -221,7 +189,7 @@ def Next_Button_Press():
 # Behavior when NEXTBUTTON is held
 def Next_Button_Held():
     global Bank, next_was_held, volume_up
-    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized:
+    if Mode == 0 and setup_donerecording and loops[selected_loop].initialized >= 1:
         volume_up = True
         change_volume_event.set()
     elif Mode == 1:
@@ -308,12 +276,15 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
     date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     print(f"-----= Exporting Session {date_time_now}")
     for i in range(number_of_tracks):
-        if loops[i].initialized:
-            if loops[i].is_undo:
+        if loops[i].initialized >= 1:
+            if loops[i].undo_mode == 0:
+                audio_buffer = loops[i].main_audio[:loops[i].length]*(init_volume/max_volume)**2 +
+                                loops[i].dub_audio[:loops[i].length]*(init_volume/max_volume)**2
+                audio_buffer = audio_buffer.tobytes()
+            elif loops[i].undo_mode == 1:
                 audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
-            else:
-                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length] * (init_volume/max_volume)**2).tobytes()
-            #audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
+            elif loops[i].undo_mode == 2:
+                audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
             audio_buffer=io.BytesIO(audio_buffer)
             audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
             output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + "-" + str(loops[i].volume).zfill(2) + ".wav"
@@ -323,8 +294,8 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
     print("Session 'session_" + str(date_time_now) + "' SAVED Successfully")
 
 def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
-    if len(sessions_list) > 0:
-        list_sessions()
+    list_sessions()
+    if len(sessions) > 0:
         global setup_donerecording, setup_is_recording, selected_loop, pause_callback
         print(f"-----= Importing Session {selected_session}")
         pause_callback = 300  # "Pauses" the loop callback
@@ -353,7 +324,7 @@ def load_wav_to_main_audio(session_file_path, session_track_number, session_trac
         num_blocks = len(audio_data) // CHUNK  # Length in Chunks
 
         # Copy the data to main_audio and restore initializations, lengths, length_factors and writep
-        loops[session_track_number].initialized = True
+        loops[session_track_number].initialized = 1
         loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
         if session_track_number == 0:
             LENGTH = num_blocks
@@ -403,7 +374,7 @@ def PowerOffLeds():
 
 # Debug prints info on stdout
 def debug():
-    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|MaxP\t|WriP\t|Leng')
+    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|MaxP\t|WriP\t|IsUn\t|Leng')
     for i in range(number_of_tracks):
         print(str(i).zfill(2), ' |',
               int(loops[i].initialized), '  |',
@@ -416,6 +387,7 @@ def debug():
               int(loops[i].volume), '\t|',
               int(loops[i].maxpeak), '\t|',
               int(loops[i].writep), '\t|',
+              int(loops[i].undo_mode), '\t|',
               int(loops[i].length))
     print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording, 'output_volume=', str(output_volume)[0:4])
     print('length=', loops[selected_loop].length, 'LENGTH=', LENGTH, 'length_factor=', loops[selected_loop].length_factor)
@@ -469,6 +441,38 @@ def show_status():
     else:
         PLAYLEDR.off()
         PLAYLEDG.off()
+
+# Event to control the volume change
+change_volume_event = Event()
+
+def change_volume_with_acceleration():
+    global selected_loop, display_data
+    base_interval = 0.5  # Base interval in seconds
+    acceleration_factor = 0.7  # Acceleration Factor
+    min_interval = 0.1  # Min. Interval between volume changes in seconds
+    while True:  # Infinite Loop to keep the thread running
+        if change_volume_event.is_set():  # Test if event is active
+            interval = base_interval
+            while change_volume_event.is_set():  # While Button is pressed
+                if volume_up == False:
+                    if loops[selected_loop].volume >= 1:
+                        loops[selected_loop].volume -= 1
+                        print('Volume Decreased=', loops[selected_loop].volume, '\n')
+                else:
+                    if loops[selected_loop].volume <= max_volume - 1:
+                        loops[selected_loop].volume += 1
+                        print('Volume Increased=', loops[selected_loop].volume, '\n')
+                display_data = str(int(loops[selected_loop].volume/2))[-1]
+                debug()
+                # Reducir el intervalo para acelerar
+                interval = max(min_interval, interval * acceleration_factor)
+                sleep(interval)
+        else:
+            sleep(0.1)  # Avoids the high CPU load when the event is not active
+
+# Start the thread to change volume with acceleration
+volume_thread = Thread(target=change_volume_with_acceleration, daemon=True)
+volume_thread.start()
 
 # Changes the FluidSynth Preset
 def ChangePreset():
@@ -574,7 +578,7 @@ print('----- Jack Client RaspiLoopStation Initialized','\n')
 
 class audioloop:
     def __init__(self):
-        self.initialized = False
+        self.initialized = 0
         self.length_factor = 1
         self.length = 0
         self.maxpeak = 0
@@ -585,7 +589,7 @@ class audioloop:
         self.is_waiting_rec = False
         self.is_waiting_play = False
         self.is_waiting_mute = False
-        self.is_undo = False
+        self.undo_mode = 0
         self.is_solo = False
         self.volume = init_volume
         self.preceding_buffer = np.zeros([CHUNK], dtype=np.int16)
@@ -617,14 +621,14 @@ class audioloop:
 
         # If a Track is_waiting_rec, put it to Rec when reaches the end of length of track 0 (not initialized) or at end of selected track (if initialized)
         if self.is_waiting_rec:
-            if ((self.initialized and self.writep == self.length - 1) or
-                (not self.initialized and loops[0].writep == loops[0].length - 1)):
+            if ((self.initialized >= 1 and self.writep == self.length - 1) or
+                (self.initialized == 0 and loops[0].writep == loops[0].length - 1)):
                 self.is_recording = True
                 self.is_waiting_rec = False
                 print('---= Start Recording Track ', selected_loop, '\n')
 
         # If a Track is not initialized, exit and returns silence
-        if not self.initialized:
+        if self.initialized == 0:
             return(silence)
 
         # If the Track is initialized:
@@ -647,25 +651,37 @@ class audioloop:
         tmp = self.readp
         self.increment_pointers()
 
-        if self.is_undo:
+        if self.undo_mode == 1:
             return(self.main_audio[tmp, :])  # If Undo was pressed, plays only main_audio
-        else:
-            return(self.main_audio[tmp, :] + self.dub_audio[tmp, :] * (init_volume/max_volume)**2)  # If Undo was not pressed, plays sum of main and dub audio
+        elif self.undo_mode == 2:
+            return(self.dub_audio[tmp, :])  # If Undo was pressed, plays only dub_audio
+        elif self.undo_mode == 0:
+            return(self.main_audio[tmp, :]*(init_volume/max_volume)**2 +
+                   self.dub_audio[tmp, :]*(init_volume/max_volume)**2)  # If Undo was not pressed, plays sum of main and dub audio
 
     # write_buffer() appends a new buffer on main_audio if not initialized or on dub_audio if initialized
     def write_buffers(self, data):
         global LENGTH
         self.maxpeak = max(np.max(np.abs(data))/max_amplitude*100, self.maxpeak)
-        if self.initialized:
+        if self.initialized >= 1:
             if self.writep < self.length - 1:
-                if not self.is_undo:  # If Undo was not pressed, writes on main_audio the sum of main and dub audio
-                    self.main_audio[self.writep, :] = self.dub_audio[self.writep, :] * (init_volume/max_volume)**2 + self.main_audio[self.writep, :] * (init_volume/max_volume)**2
-                self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
+                if self.undo_mode == 0:  # If Undo was not pressed, writes on main_audio the sum of main and dub audio
+                    if self.initialized == 1:
+                        self.main_audio[self.writep, :] = self.dub_audio[self.writep, :]
+                    else:
+                        self.main_audio[self.writep, :] = (self.dub_audio[self.writep, :]*(init_volume/max_volume)**2 +
+                                                           self.main_audio[self.writep, :]*(init_volume/max_volume)**2)
+                    self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
+                elif self.undo_mode == 1:
+                    self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
+                elif self.undo_mode == 2:
+                    self.main_audio[self.writep, :] = np.copy(data)  # Add to main_audio the buffer entering through Jack
             elif self.writep == self.length - 1:
                 self.is_recording = False
+                self.initialize()
                 self.is_waiting_rec = False
                 self.is_playing = True
-                self.is_undo = False
+                self.undo_mode = 0
         else:
             if self.length >= (MAXLENGTH - 1):
                 self.length = 0
@@ -685,20 +701,18 @@ class audioloop:
         #already_recording = False
 
         #if chosen track is currently recording, flag it
-        if self.is_recording:
-            #already_recording = True
-            # turn off recording
-            if not self.initialized:
-                self.initialize()
-                self.is_playing = True
-                self.is_recording = False
-                self.is_waiting_rec = False
-                if selected_loop == 0 and not setup_donerecording:
-                    setup_is_recording = False
-                    setup_donerecording = True
-                    print('-------------= Master Track Recorded =---', '\n')
-                debug()
-                return
+        if self.is_recording:  # turn off recording
+            self.initialize()
+            self.is_playing = True
+            self.is_recording = False
+            self.is_waiting_rec = False
+            print('-------------= Stop Rec =---', '\n')
+            if selected_loop == 0 and not setup_donerecording:
+                setup_is_recording = False
+                setup_donerecording = True
+                print('-------------= Master Track Recorded =---', '\n')
+            debug()
+            return
         else:
             #unless flagged, schedule recording. If chosen track was recording, then stop recording
             #if not already_recording:
@@ -714,18 +728,14 @@ class audioloop:
 
     #initialize() raises self.length to closest integer multiple of LENGTH and initializes read and write pointers
     def initialize(self): #It initializes when recording of loop stops. It de-initializes after Clearing.
-        if not self.initialized:
+        if self.initialized == 0:
             self.writep = self.length - 1
             self.length_factor = (int((self.length - OVERSHOOT) / LENGTH) + 1)
             self.length = self.length_factor * LENGTH
-            #audio should be written ahead of where it is being read from, to compensate for input+output latency
-            self.readp = (self.writep + LATENCY) % self.length
-            self.initialized = True
-            self.is_playing = True
-
-            print('     length ' + str(self.length),'\n')
-            print('     last buffer recorded ' + str(self.writep),'\n')
-            print('-------------= Initialized =---', '\n')
+            self.readp = (self.writep + LATENCY) % self.length  #audio should be written ahead of where it is being read from, to compensate for input+output latency
+        self.initialized += 1
+        print('     length ' + str(self.length),' /  last buffer recorded ' + str(self.writep),'\n')
+        print('-------------= Initialized = ', str(self.initialized), '\n')
 
         # Apply Fades to dub_audio recently recorded
         np.multiply(self.dub_audio[0], fade_in, out = self.dub_audio[0], casting = 'unsafe')  # Fade In to the first buffer
@@ -734,7 +744,7 @@ class audioloop:
 
     def toggle_mute(self):
         print('-=Toggle Mute=-','\n')
-        if self.initialized:
+        if self.initialized >= 1:
             if self.is_playing:
                 if not self.is_waiting_mute:
                     self.is_waiting_mute = True
@@ -753,16 +763,16 @@ class audioloop:
 
     def toggle_solo(self):
         print('-=Toggle Solo=-','\n')
-        if self.initialized:
+        if self.initialized >= 1:
             if not self.is_solo:
                 for i in range(number_of_tracks):
-                    if i != selected_loop and loops[i].initialized and not loops[i].is_solo and loops[i].is_playing:
+                    if i != selected_loop and loops[i].initialized >= 1 and not loops[i].is_solo and loops[i].is_playing:
                         loops[i].is_waiting_mute = True
                 self.is_solo = True
                 print('-------------= Solo =-', '\n')
             else:
                 for i in range (number_of_tracks):
-                    if i != selected_loop and loops[i].initialized:
+                    if i != selected_loop and loops[i].initialized >= 1:
                         loops[i].is_waiting_play = True
                         loops[i].is_solo = False
                 self.is_solo = False
@@ -772,13 +782,17 @@ class audioloop:
     def undo(self):
         global LENGTH
         if self.is_recording:
-            if not self.initialized:
+            if self.initialized == 0:
                 self.clear_track()
                 if selected_loop == 0:
                     LENGTH = 0
                 return
         if self.is_playing:
-            self.is_undo = not self.is_undo
+            if self.undo_mode <= 1:
+                self.undo_mode += 1
+            else:
+                self.undo_mode = 0
+
         print('-=Undo=-', '\n')
         debug()
 
