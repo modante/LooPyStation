@@ -1,8 +1,8 @@
 import jack
 import numpy as np
 import time
-import os, sys, io
-from gpiozero import LED, Button, LEDCharDisplay
+import os, sys, io, csv
+from gpiozero import LED, PWMLED, Button, LEDBoard, LEDCharDisplay, LEDMultiCharDisplay, LEDCharFont
 from time import sleep, time
 from pydub import AudioSegment
 from datetime import datetime
@@ -52,31 +52,62 @@ recordings_dir = "./recordings/"  # Dir where Recording of Audio Sessions will b
 sessions = []
 max_amplitude = 32767
 volume_up = True  # Flag to Increase/Decrease Volume of Tracks
+my_font = LEDCharFont({
+    ' ': (0, 0, 0, 0, 0, 0, 0),
+    'o': (0, 0, 1, 1, 1, 0, 1),
+    '0': (1, 1, 1, 1, 1, 1, 0),
+    '1': (0, 1, 1, 0, 0, 0, 0),
+    '2': (1, 1, 0, 1, 1, 0, 1),
+    '3': (1, 1, 1, 1, 0, 0, 1),
+    '4': (0, 1, 1, 0, 0, 1, 1),
+    '5': (1, 0, 1, 1, 0, 1, 1),
+    '6': (1, 0, 1, 1, 1, 1, 1),
+    '7': (1, 1, 1, 0, 0, 0, 0),
+    '8': (1, 1, 1, 1, 1, 1, 1),
+    '9': (1, 1, 1, 1, 0, 1, 1),
+    '+': (1, 0, 0, 0, 0, 0, 0),
+    '-': (0, 0, 0, 0, 0, 0, 1),
+    '_': (0, 0, 0, 1, 0, 0, 0),
+    '=': (1, 0, 0, 1, 0, 0, 0),
+    'C': (1, 0, 0, 1, 1, 1, 0),
+    'c': (1, 1, 1, 1, 0, 0, 0),
+    '¡': (0, 0, 0, 0, 1, 1, 0),
+    '!': (0, 1, 1, 0, 0, 0, 0)
+})
+
+# Read GPIO Settings from gpio.csv
+with open('./gpio.csv', mode='r', encoding='utf-8') as file:
+    reader = csv.DictReader(file)
+    for row in reader:
+        if row['Function'] != "":
+            exec(f"{row['Function']} = {row['GPIONumber']}")  # Assign a value to the variables 'Function'
 
 # Buttons, Leds and 8-Segments Display
-display = LEDCharDisplay(11, 25, 9, 10, 24, 22, 23, dp=27)
-PLAYLEDR = (LED(26, active_high=False))
-PLAYLEDG = (LED(20, active_high=False))
-RECLEDR = (LED(0, active_high=False))
-RECLEDG = (LED(1, active_high=False))
+display = LEDMultiCharDisplay(LEDCharDisplay(disp8seg_a, disp8seg_b, disp8seg_c, disp8seg_d, disp8seg_e, disp8seg_f, disp8seg_g, dp=disp8seg_dp, font=my_font, active_high=False), disp8seg_dig1, disp8seg_dig2)
+PLAYLEDR = (PWMLED(play_led_red, active_high=False))
+PLAYLEDG = (PWMLED(play_led_green, active_high=False))
+RECLEDR = (PWMLED(rec_led_red, active_high=False))
+RECLEDG = (PWMLED(rec_led_green, active_high=False))
+UNDOLEDR = (PWMLED(undo_led_red, active_high=False))
+UNDOLEDG = (PWMLED(undo_led_green, active_high=False))
 
 debounce_length = 0.05  # Length in seconds of button debounce period
-RECBUTTON = (Button(18, bounce_time=debounce_length))
+RECBUTTON = (Button(rec_button, bounce_time=debounce_length))
 RECBUTTON.hold_time = 0.5
 rec_was_held = False
-PLAYBUTTON = (Button(15, bounce_time=debounce_length))
+PLAYBUTTON = (Button(play_button, bounce_time=debounce_length))
 PLAYBUTTON.hold_time = 0.5
 play_was_held = False
-CLEARBUTTON = (Button(17, bounce_time=debounce_length))
-CLEARBUTTON.hold_time = 0.5
+UNDOBUTTON = (Button(undo_button, bounce_time=debounce_length))
+UNDOBUTTON.hold_time = 0.5
 clear_was_held = False
-PREVBUTTON = (Button(5, bounce_time=debounce_length))
+PREVBUTTON = (Button(prev_button, bounce_time=debounce_length))
 PREVBUTTON.hold_time = 0.5
 prev_was_held = False
-NEXTBUTTON = (Button(12, bounce_time=debounce_length))
+NEXTBUTTON = (Button(next_button, bounce_time=debounce_length))
 NEXTBUTTON.hold_time = 0.5
 next_was_held = False
-MODEBUTTON = (Button(6, bounce_time=debounce_length))
+MODEBUTTON = (Button(mode_button, bounce_time=debounce_length))
 MODEBUTTON.hold_time = 2.5
 mode_was_held = False
 
@@ -143,14 +174,15 @@ def Prev_Button_Press():
             print('-= Prev Loop =---> ', selected_loop, '\n')
             debug()
         elif Mode == 1:
-            if Preset >= 1:
-                Preset -= 1
-                ChangePreset()
+            if len(sf2_list) > 0 and synth_initialized:
+                if Preset >= 1:
+                    Preset -= 1
+                    ChangePreset()
         elif Mode == 2:
             if Session >= 1:
                 Session -= 1
                 print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
-                display_data = str(Session)[-1]
+                display_data = str(Session).zfill(2)
     prev_was_held = False
     change_volume_event.clear()  # Detener la disminución acelerada
 
@@ -161,9 +193,10 @@ def Prev_Button_Held():
         volume_up = False
         change_volume_event.set()  # Iniciar la disminución acelerada
     elif Mode == 1:
-        if Bank >= 1:
-            Bank -= 1
-            ChangeBank()
+        if len(sf2_list) > 0 and synth_initialized:
+            if Bank >= 1:
+                Bank -= 1
+                ChangeBank()
     prev_was_held = True
 
 # Behavior when NEXTBUTTON is pressed
@@ -175,14 +208,15 @@ def Next_Button_Press():
             print('-= Next Loop =---> ', selected_loop, '\n')
             debug()
         if Mode == 1:
-            if Preset < 125:
-                Preset += 1
-                ChangePreset()
+            if len(sf2_list) > 0 and synth_initialized:
+                if Preset < 125:
+                    Preset += 1
+                    ChangePreset()
         elif Mode == 2:
             if Session < len(sessions) - 1:
                 Session += 1
                 print("Selected Session = ", str(Session), " - ", str(sessions[Session]))
-                display_data = str(Session)[-1]
+                display_data = str(Session).zfill(2)
     next_was_held = False
     change_volume_event.clear()
 
@@ -193,7 +227,7 @@ def Next_Button_Held():
         volume_up = True
         change_volume_event.set()
     elif Mode == 1:
-        if len(sf2_list) > 0:
+        if len(sf2_list) > 0 and synth_initialized:
             if Bank < len(sf2_list) - 1:
                 Bank += 1
                 ChangeBank()
@@ -228,7 +262,7 @@ def Mute_Button_Held():
         else:
             print("Nothing to Export")
 
-# Behavior when CLEARBUTTON is pressed
+# Behavior when UNDOBUTTON is pressed
 def Clear_Button_Pressed():
     if Mode == 0 or Mode == 1:
         global clear_was_held
@@ -236,7 +270,7 @@ def Clear_Button_Pressed():
             loops[selected_loop].undo()
         clear_was_held = False
 
-# Behavior when CLEARBUTTON is held
+# Behavior when UNDOBUTTON is held
 def Clear_Button_Held():
     if Mode == 0 or Mode == 1:
         global clear_was_held
@@ -275,12 +309,11 @@ def rec_audio_session():
 def export_session():  # In Mode 2, holding Mute Button, exports all the initialized tracks to wav
     date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     print(f"-----= Exporting Session {date_time_now}")
+    scaled_volume = (init_volume/max_volume)**2
     for i in range(number_of_tracks):
         if loops[i].initialized >= 1:
             if loops[i].undo_mode == 0:
-                audio_buffer = (loops[i].main_audio[:loops[i].length]*(init_volume/max_volume)**2+
-                                loops[i].dub_audio[:loops[i].length]*(init_volume/max_volume)**2)
-                audio_buffer = audio_buffer.tobytes()
+                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length]).tobytes()
             elif loops[i].undo_mode == 1:
                 audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
             elif loops[i].undo_mode == 2:
@@ -307,7 +340,7 @@ def import_session():  # In Mode 2, holding Undo Button, imports the selected (w
                 session_track_volume = int(file[37:39])  # Extract the chars 38 and 39 that are the Track Volume
                 print(f"File: {file} ---> Track: {session_track_number}")
                 session_file_path = sessions_dir + file
-                load_wav_to_main_audio(session_file_path, session_track_number, session_track_volume)
+                load_wav(session_file_path, session_track_number, session_track_volume)
             else:
                 print(f"The file '{file}' has not enough chars in the name.")
         setup_donerecording = True
@@ -316,7 +349,7 @@ def import_session():  # In Mode 2, holding Undo Button, imports the selected (w
         print("---= Session Imported Succesfully :-D =---", '\n')
         debug()
 
-def load_wav_to_main_audio(session_file_path, session_track_number, session_track_volume):
+def load_wav(session_file_path, session_track_number, session_track_volume):
     global LENGTH
     try:
         audio_segment = AudioSegment.from_file(session_file_path, format="wav")  # Loads wav file
@@ -367,80 +400,10 @@ def float2pcm(sig, dtype='int16'):
 
 # Turn-Off all the Leds
 def PowerOffLeds():
-    RECLEDR.off()
-    RECLEDG.off()
-    PLAYLEDR.off()
-    PLAYLEDG.off()
-
-# Debug prints info on stdout
-def debug():
-    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol\t|MaxP\t|WriP\t|IsUn\t|Leng')
-    for i in range(number_of_tracks):
-        print(str(i).zfill(2), ' |',
-              int(loops[i].initialized), '  |',
-              int(loops[i].is_recording), '  |',
-              int(loops[i].is_waiting_rec), '  |',
-              int(loops[i].is_playing), '  |',
-              int(loops[i].is_waiting_play), '  |',
-              int(loops[i].is_waiting_mute), '  |',
-              int(loops[i].is_solo), '  |',
-              int(loops[i].volume), '\t|',
-              int(loops[i].maxpeak), '\t|',
-              int(loops[i].writep), '\t|',
-              int(loops[i].undo_mode), '\t|',
-              int(loops[i].length))
-    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording, 'output_volume=', str(output_volume)[0:4])
-    print('length=', loops[selected_loop].length, 'LENGTH=', LENGTH, 'length_factor=', loops[selected_loop].length_factor)
-    print('|', ' '*9,'|',' '*9,'|', ' '*9,'|',' '*9,'|')
-
-# Checks which loops are recording/playing/waiting and lights up LEDs and Display accordingly
-def show_status():
-    global display_data, display_count
-    # If Prev / Next Buttons are Pressed, 8-seg. Display shows selected selected_loop / Preset (depends of Mode)
-    if display_data == "":
-        if Mode == 0:
-            display.value = str(selected_loop)[-1]
-        elif Mode == 1:
-            display.value = str(Preset)[-1] + "."
-        elif Mode == 2:
-            display.value = " ."
-    else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
-        if display_count <= 4:
-            display.value = display_data
-            display_count += 1
-        else:
-            display_count = 0
-            display_data = ""
-
-    # Leds Status for Rec Button ---------------------------
-    if Mode == 0 or Mode == 1:
-        if loops[selected_loop].is_recording:
-            RECLEDR.on()
-            RECLEDG.off()
-        elif loops[selected_loop].is_waiting_rec:
-            RECLEDR.on()
-            RECLEDG.on()
-        elif setup_donerecording or not loops[selected_loop].is_recording:
-            RECLEDR.off()
-            RECLEDG.off()
-    elif Mode == 2:
-        if rec_file:
-            RECLEDR.on()
-            RECLEDG.off()
-        else:
-            RECLEDR.off()
-            RECLEDG.off()
-
-    # Leds Status for Play Button ---------------------------
-    if loops[selected_loop].is_waiting_play or loops[selected_loop].is_waiting_mute:
-        PLAYLEDR.on()
-        PLAYLEDG.on()
-    elif loops[selected_loop].is_playing:
-        PLAYLEDR.off()
-        PLAYLEDG.on()
-    else:
-        PLAYLEDR.off()
-        PLAYLEDG.off()
+    RECLEDR.value = 0
+    RECLEDG.value = 0
+    PLAYLEDR.value = 0
+    PLAYLEDG.value = 0
 
 # Event to control the volume change
 change_volume_event = Event()
@@ -462,7 +425,7 @@ def change_volume_with_acceleration():
                     if loops[selected_loop].volume <= max_volume - 1:
                         loops[selected_loop].volume += 1
                         print('Volume Increased=', loops[selected_loop].volume, '\n')
-                display_data = str(int(loops[selected_loop].volume/2))[-1]
+                display_data = str(loops[selected_loop].volume).zfill(2)
                 debug()
                 # Reducir el intervalo para acelerar
                 interval = max(min_interval, interval * acceleration_factor)
@@ -476,20 +439,18 @@ volume_thread.start()
 
 # Changes the FluidSynth Preset
 def ChangePreset():
-    if len(sf2_list) > 0:
-        fs.program_select(0, sfid, 0, Preset)
-        print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
+    fs.program_select(0, sfid, 0, Preset)
+    print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Changes the FluidSynth Bank
 def ChangeBank():
-    if len(sf2_list) > 0:
-        global display_data, sfid, Preset
-        display_data = str(Bank)[-1] + "."
-        fs.sfunload(sfid)
-        sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
-        fs.program_select(0, sfid, 0, 0)
-        Preset = 0
-        print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
+    global display_data, sfid, Preset
+    display_data = str(Bank).zfill(2)
+    fs.sfunload(sfid)
+    sfid = fs.sfload("./sf2/" + str(sf2_list[Bank]))
+    fs.program_select(0, sfid, 0, 0)
+    Preset = 0
+    print('----- Bank: ', str(Bank), ' - ', str(sf2_list[Bank]),' / Preset: ',  ' - ', str(Preset), '\n')
 
 # Assign all the Capture ports to Looper Input
 def all_captures_to_input():
@@ -525,6 +486,81 @@ def is_jack_server_running():
     except jack.JackError: # If JackError happens, ther server is NOT active
         return False
 
+# Debug prints info on stdout
+def debug():
+    print('    |init |rec  |wait |play |waiP |waiM |Solo |Vol  |MaxP |WriP\t|IsUn |Leng')
+    for i in range(number_of_tracks):
+        print(str(i).zfill(2), ' |',
+              int(loops[i].initialized), '  |',
+              int(loops[i].is_recording), '  |',
+              int(loops[i].is_waiting_rec), '  |',
+              int(loops[i].is_playing), '  |',
+              int(loops[i].is_waiting_play), '  |',
+              int(loops[i].is_waiting_mute), '  |',
+              int(loops[i].is_solo), '  |',
+              int(loops[i].volume), '  |',
+              int(loops[i].maxpeak), '  |',
+              int(loops[i].writep), '\t|',
+              int(loops[i].undo_mode), '  |',
+              int(loops[i].length))
+    print('setup_donerecording=', setup_donerecording, ' setup_is_recording=', setup_is_recording, 'output_volume=', str(output_volume)[0:4])
+    print('length=', loops[selected_loop].length, 'LENGTH=', LENGTH, 'length_factor=', loops[selected_loop].length_factor)
+    print('|', ' '*9,'|',' '*9,'|', ' '*9,'|',' '*9,'|')
+
+# Checks which loops are recording/playing/waiting and lights up LEDs and Display accordingly
+def show_status():
+    global display_data, display_count
+    # If Prev / Next Buttons are Pressed, 8-seg. Display shows selected selected_loop / Preset (depends of Mode)
+    if display_data == "":
+        if Mode == 0:
+            display.value = str(selected_loop).zfill(2)
+        elif Mode == 1:
+            display.value = (str(Preset).zfill(2)[-2], str(Preset).zfill(2)[-1] + '.')
+        elif Mode == 2:
+            display.value = "--"
+    else:  # Else, if Prev / Next Buttons are Held, display shows Volume / Bank (depends of Mode)
+        if display_count <= 4:
+            display.value = display_data[-2:]
+            display_count += 1
+        else:
+            display_count = 0
+            display_data = ""
+
+    # Leds Status for Rec Button ---------------------------
+    if Mode == 0 or Mode == 1:
+        if loops[selected_loop].is_recording:
+            RECLEDR.value = 1
+            RECLEDG.value = 0
+
+        elif loops[selected_loop].is_waiting_rec:
+            RECLEDR.value = 1
+            RECLEDG.value = 0.25
+        elif setup_donerecording or not loops[selected_loop].is_recording:
+            RECLEDR.value = 0
+            RECLEDG.value = 0
+    elif Mode == 2:
+        if rec_file:
+            RECLEDR.value = 1
+            RECLEDG.value = 0
+        else:
+            RECLEDR.value = 0
+            RECLEDG.value = 0
+
+    # Leds Status for Play Button ---------------------------
+    if loops[selected_loop].is_waiting_play or loops[selected_loop].is_waiting_mute:
+        PLAYLEDR.value = 1
+        PLAYLEDG.value = 0.25
+    elif loops[selected_loop].is_playing:
+        PLAYLEDR.value = 0
+        PLAYLEDG.value = 1
+    else:
+        PLAYLEDR.value = 0
+        PLAYLEDG.value = 0
+
+    # Leds Status for Undo Button ---------------------------
+    UNDOLEDR.value = 0
+    UNDOLEDG.value = 0
+
 # Defining functions of all the buttons during jam session...
 PREVBUTTON.when_released = Prev_Button_Press
 PREVBUTTON.when_held = Prev_Button_Held
@@ -533,14 +569,14 @@ NEXTBUTTON.when_held = Next_Button_Held
 MODEBUTTON.when_released = Change_Mode
 MODEBUTTON.when_held = restart_program
 RECBUTTON.when_pressed = Rec_Button_Pressed
-CLEARBUTTON.when_released = Clear_Button_Pressed
-CLEARBUTTON.when_held = Clear_Button_Held
+UNDOBUTTON.when_released = Clear_Button_Pressed
+UNDOBUTTON.when_held = Clear_Button_Held
 PLAYBUTTON.when_released = Mute_Button_Pressed
 PLAYBUTTON.when_held = Mute_Button_Held
 
 # Detects if the SoundCard defined on settings is connected
 print("Detecting SoundCard Number:",str(INDEVICE))
-display.value = " ."  # Shows a decimal point on 8-seg Display
+display.value = "Cc"  # Shows two lines on 8-seg Display
 while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
     try:
         with open("/proc/asound/cards", "r") as f:
@@ -564,12 +600,14 @@ if is_jack_server_running():
 else:
     os.system ("sudo -H -u raspi env JACK_NO_AUDIO_RESERVATION=1 jackd -dalsa -r"+str(RATE)+" -p"+str(CHUNK)+" -n2 -Xraw -D -Chw:"+str(INDEVICE)+" -Phw:"+str(OUTDEVICE)+" &")
     print("----- Jack Server is NOT running. Starting it!",'\n')
-    for i in range(2):
-        if i % 2 == 0:
-            display.value = " "
+    for i in range(6):
+        if i % 3 == 0:
+            display.value = "++"
+        elif i % 3 == 1:
+            display.value = "--"
         else:
-            display.value = " ."
-        sleep(0.5)
+            display.value = "__"
+        sleep(0.1)
     print("----- Jack Server is running",'\n')
 
 # Initializing JACK Client
@@ -612,8 +650,8 @@ class audioloop:
         # Turns On 0,1s the Red Led of PLAYBUTTON to mark the starting of Master Loop
         global rec_file
         if setup_donerecording and loops[0].readp == 0:
-            PLAYLEDR.on()
-            PLAYLEDG.off()
+            UNDOLEDR.value = 1
+            UNDOLEDG.value = 0
             if set_recording_file:
                 rec_file = True
             else:
@@ -669,8 +707,9 @@ class audioloop:
                     if self.initialized == 1:
                         self.main_audio[self.writep, :] = self.dub_audio[self.writep, :]
                     else:
-                        self.main_audio[self.writep, :] = (self.dub_audio[self.writep, :]*(init_volume/max_volume)**2 +
-                                                           self.main_audio[self.writep, :]*(init_volume/max_volume)**2)
+                        scaled_volume = (init_volume / max_volume) ** 2
+                        self.main_audio[self.writep, :] = (self.dub_audio[self.writep, :]*scaled_volume +
+                                                           self.main_audio[self.writep, :]*scaled_volume)
                     self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack
                 elif self.undo_mode == 1:
                     self.dub_audio[self.writep, :] = np.copy(data)  # Add to dub_audio the buffer entering through Jack

@@ -1,0 +1,41 @@
+GPIOPin,GPIOName,Function,GPIONumber
+1,3.3V,,
+2,5V,,
+3,GPIO 2 (SDA1),,
+4,5V,,
+5,GPIO 3 (SCL1),,
+6,GND,,
+7,GPIO 4 (GPCLK0),,
+8,GPIO 14 (TXD),,
+9,GND,,
+10,GPIO 15 (RXD),,
+11,GPIO 17,prev_button,17
+12,GPIO 18 (PCMCLK),mode_button,18
+13,GPIO 27,next_button,27
+14,GND,,
+15,GPIO 22,rec_button,22
+16,GPIO 23,rec_led_red,23
+17,3.3V,,
+18,GPIO 24,rec_led_green,24
+19,GPIO 10 (MOSI),undo_button,10
+20,GND,,
+21,GPIO 9 (MISO),undo_led_red,9
+22,GPIO 25,undo_led_green,25
+23,GPIO 11 (SCLK),play_button,11
+24,GPIO 8 (CE0),play_led_red,8
+25,GND,,
+26,GPIO 7 (CE1),play_led_green,7
+27,GPIO 0 (ID_SD),disp8seg_dig2,0
+28,GPIO 1 (ID_SC),disp8seg_dig1,1
+29,GPIO 5,disp8seg_dp,5
+30,GND,,
+31,GPIO 6,disp8seg_g,6
+32,GPIO 12 (PWM0),disp8seg_f,12
+33,GPIO 13 (PWM1),disp8seg_e,13
+34,GND,,
+35,GPIO 19 (PCMFS),disp8seg_d,19
+36,GPIO 16,disp8seg_c,16
+37,GPIO 26,disp8seg_b,26
+38,GPIO 20 (PCM_DIN),disp8seg_a,20
+39,GND,,
+40,GPIO 21 (PCM_DOUT),,
