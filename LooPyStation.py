@@ -20,8 +20,8 @@ RATE = int(parameters[0])  # Sample rate
 CHUNK = int(parameters[1])  # Buffer size
 latency_in_milliseconds = int(parameters[2])
 LATENCY = round((latency_in_milliseconds/1000) * (RATE/CHUNK))  # Latency in buffers
-INDEVICE = int(parameters[3])  # Index of input device
-OUTDEVICE = int(parameters[4])  # Index of output device
+INDEVICE = parameters[3].strip()  # Index of input device
+OUTDEVICE = parameters[4].strip()  # Index of output device
 overshoot_in_milliseconds = int(parameters[5])  # Allowance in milliseconds for pressing 'stop recording' late
 OVERSHOOT = round((overshoot_in_milliseconds/1000) * (RATE/CHUNK))  # Allowance in buffers
 MAXLENGTH = int(12582912 / CHUNK)  # 96mb of audio in total
@@ -80,7 +80,7 @@ with open('./gpio.csv', mode='r', encoding='utf-8') as file:
     reader = csv.DictReader(file)
     for row in reader:
         if row['Function'] != "":
-            exec(f"{row['Function']} = {row['GPIONumber']}")  # Assign a value to the variables 'Function'
+            exec(f"{row['Function']} = {row['GPIONumber']}")  # Assign 'GPIONumber' like value to the variables 'Function'
 
 # Buttons, Leds and 8-Segments Display
 display = LEDMultiCharDisplay(LEDCharDisplay(disp8seg_a, disp8seg_b, disp8seg_c, disp8seg_d, disp8seg_e, disp8seg_f, disp8seg_g, dp=disp8seg_dp, font=my_font, active_high=False), disp8seg_dig1, disp8seg_dig2)
@@ -309,38 +309,44 @@ def rec_audio_session():
 def export_session():  # In Mode 2, holding Mute Button, exports all the initialized tracks to wav
     date_time_now = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
     print(f"-----= Exporting Session {date_time_now}")
-    scaled_volume = (init_volume/max_volume)**2
+
     for i in range(number_of_tracks):
         if loops[i].initialized >= 1:
-            if loops[i].undo_mode == 0:
-                audio_buffer = (loops[i].main_audio[:loops[i].length] + loops[i].dub_audio[:loops[i].length]).tobytes()
-            elif loops[i].undo_mode == 1:
-                audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
-            elif loops[i].undo_mode == 2:
+            audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
+            write_track_file_session(audio_buffer, date_time_now, i, 1)
+            if loops[i].initialized >= 2:
                 audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
-            audio_buffer=io.BytesIO(audio_buffer)
-            audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
-            output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(2) + "-" + str(loops[i].volume).zfill(2) + ".wav"
-            audio_segment.export(output_file_name, format="wav")  # Write file to disk
-            print("   * Session Track - file saved: ", output_file_name)
-    list_sessions()
+                write_track_file_session(audio_buffer, date_time_now, i, 2)
     print("Session 'session_" + str(date_time_now) + "' SAVED Successfully")
+    print("-----------------------")
+    print("**** Sessions List ****")
+    list_sessions()
+
+def write_track_file_session(audio_buffer, date_time_now, i, init):
+    audio_buffer = io.BytesIO(audio_buffer)
+    audio_segment = AudioSegment.from_raw(audio_buffer, sample_width=2, frame_rate=48000, channels=1)
+    output_file_name = sessions_dir + "session_" + str(date_time_now) + "-track_" + str(i).zfill(
+        2) + "_" + str(init).zfill(1) + "-" + str(loops[i].volume).zfill(2) + "-" + str(loops[i].undo_mode).zfill(1) + ".wav"
+    audio_segment.export(output_file_name, format="wav")  # Write file to disk
+    print("   * Session Track - file saved: ", output_file_name)
 
 def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
     list_sessions()
     if len(sessions) > 0:
         global setup_donerecording, setup_is_recording, selected_loop, pause_callback
         print(f"-----= Importing Session {selected_session}")
-        pause_callback = 300  # "Pauses" the loop callback
+        #pause_callback = 300  # "Pauses" the loop callback
         for loop in loops:
             loop.__init__()  # Initialize ALL
         for file in selected_session:
-            if len(file) >= 39:  # Make sure the file is at least 36 characters long
+            if len(file) >= 43:  # Make sure the file is at least 43 characters long
                 session_track_number = int(file[34:36])  # Extract the chars 35 and 36 that are the Track Number
-                session_track_volume = int(file[37:39])  # Extract the chars 38 and 39 that are the Track Volume
+                session_track_init = int(file[37:38])  # Extract the chars 38 that is the Track Volume
+                session_track_volume = int(file[39:41])  # Extract the chars 40 and 41 that are the Track Volume
+                session_track_undo = int(file[42:43])  # Extract the chars 43 that is the Track Volume
                 print(f"File: {file} ---> Track: {session_track_number}")
                 session_file_path = sessions_dir + file
-                load_wav(session_file_path, session_track_number, session_track_volume)
+                load_wav(session_file_path, session_track_number, session_track_init, session_track_volume, session_track_undo)
             else:
                 print(f"The file '{file}' has not enough chars in the name.")
         setup_donerecording = True
@@ -349,20 +355,23 @@ def import_session():  # In Mode 2, holding Undo Button, imports the selected (w
         print("---= Session Imported Succesfully :-D =---", '\n')
         debug()
 
-def load_wav(session_file_path, session_track_number, session_track_volume):
+def load_wav(session_file_path, session_track_number, session_track_init, session_track_volume, session_track_undo):
     global LENGTH
     try:
         audio_segment = AudioSegment.from_file(session_file_path, format="wav")  # Loads wav file
         audio_data = np.array(audio_segment.get_array_of_samples(), dtype=np.int16)  # Convert to NumPy
         num_blocks = len(audio_data) // CHUNK  # Length in Chunks
-
         # Copy the data to main_audio and restore initializations, lengths, length_factors and writep
-        loops[session_track_number].initialized = 1
-        loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
         if session_track_number == 0:
             LENGTH = num_blocks
+        if session_track_init ==1:
+            loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
+        if session_track_init ==2:
+            loops[session_track_number].dub_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
         loops[session_track_number].length = num_blocks
         loops[session_track_number].volume = session_track_volume
+        loops[session_track_number].initialized = session_track_init
+        loops[session_track_number].undo_mode = session_track_undo
         loops[session_track_number].writep = num_blocks - 1
         loops[session_track_number].length_factor = loops[session_track_number].length / loops[0].length
         loops[session_track_number].is_playing = True
@@ -534,7 +543,7 @@ def show_status():
 
         elif loops[selected_loop].is_waiting_rec:
             RECLEDR.value = 1
-            RECLEDG.value = 0.25
+            RECLEDG.value = 0.3
         elif setup_donerecording or not loops[selected_loop].is_recording:
             RECLEDR.value = 0
             RECLEDG.value = 0
@@ -549,7 +558,7 @@ def show_status():
     # Leds Status for Play Button ---------------------------
     if loops[selected_loop].is_waiting_play or loops[selected_loop].is_waiting_mute:
         PLAYLEDR.value = 1
-        PLAYLEDG.value = 0.25
+        PLAYLEDG.value = 0.3
     elif loops[selected_loop].is_playing:
         PLAYLEDR.value = 0
         PLAYLEDG.value = 1
@@ -581,10 +590,16 @@ while Mode == 3:  # Waits in an infinite loop till SoundCard is connected
     try:
         with open("/proc/asound/cards", "r") as f:
             content = f.read().strip()
+        indev = ""
         # Check if " INDEVICE [" is in the list of sound cards
-        if (" "+str(INDEVICE)+" [") in content:
+        if (" " + str(INDEVICE[0]) + " [") in content:
+            indev=INDEVICE[0]
+        elif (" " + str(INDEVICE[2]) + " [") in content:
+            indev = INDEVICE[2]
+
+        if indev:
             Mode = 0
-            print("Sound card number:", str(INDEVICE)," detected\n")
+            print("Sound card number:", str(indev)," detected\n")
         else:
             print("Sound card number:", str(INDEVICE)," NOT detected", end='\r')
             sleep(0.5)
@@ -598,7 +613,7 @@ if is_jack_server_running():
     Mode = 0
     print("----- Jack Server is already running ------",'\n')
 else:
-    os.system ("sudo -H -u raspi env JACK_NO_AUDIO_RESERVATION=1 jackd -dalsa -r"+str(RATE)+" -p"+str(CHUNK)+" -n2 -Xraw -D -Chw:"+str(INDEVICE)+" -Phw:"+str(OUTDEVICE)+" &")
+    os.system ("sudo -H -u raspi env JACK_NO_AUDIO_RESERVATION=1 jackd -dalsa -r"+str(RATE)+" -p"+str(CHUNK)+" -n2 -Xraw -D -Chw:"+str(indev)+" -Phw:"+str(indev)+" &")
     print("----- Jack Server is NOT running. Starting it!",'\n')
     for i in range(6):
         if i % 3 == 0:
@@ -694,8 +709,8 @@ class audioloop:
         elif self.undo_mode == 2:
             return(self.dub_audio[tmp, :])  # If Undo was pressed, plays only dub_audio
         elif self.undo_mode == 0:
-            return(self.main_audio[tmp, :]*(init_volume/max_volume)**2 +
-                   self.dub_audio[tmp, :]*(init_volume/max_volume)**2)  # If Undo was not pressed, plays sum of main and dub audio
+            return(self.main_audio[tmp, :]*(init_volume/max_volume)**1.4142 +
+                   self.dub_audio[tmp, :]*(init_volume/max_volume)**1.4142)  # If Undo was not pressed, plays sum of main and dub audio
 
     # write_buffer() appends a new buffer on main_audio if not initialized or on dub_audio if initialized
     def write_buffers(self, data):
