@@ -42,7 +42,6 @@ init_volume = 14  # Initial volume for each Track
 max_volume = 20  # Max volume for each Track
 display_data = ""  # Secondary info to show on Display
 display_count = 0  # Timer to show secondary info on Display
-pause_callback = int(0.5*RATE/CHUNK)  # Pauses 2 seconds approx. the loop callback
 synth_initialized = False  # Flag
 set_recording_file = False  # Flag to set Recording Audio Session waiting to starting of Master Track
 rec_file = False  # Flag for the Recording Audio Session activity
@@ -333,9 +332,8 @@ def write_track_file_session(audio_buffer, date_time_now, i, init):
 def import_session():  # In Mode 2, holding Undo Button, imports the selected (with Prev and Next Buttons) session from the ones recorded at ./recordings
     list_sessions()
     if len(sessions) > 0:
-        global setup_donerecording, setup_is_recording, selected_loop, pause_callback
+        global setup_donerecording, setup_is_recording, selected_loop
         print(f"-----= Importing Session {selected_session}")
-        #pause_callback = 300  # "Pauses" the loop callback
         for loop in loops:
             loop.__init__()  # Initialize ALL
         for file in selected_session:
@@ -875,13 +873,7 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 # Audio Processing Callback
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer, pause_callback, output_volume, previous_scaling_factor
-
-    if pause_callback > 1:  # Little "pause" for the the loopback
-        play_buffer[:] = silence
-        pause_callback -= 1
-        print(pause_callback, "   ", end='\r')
-        return
+    global play_buffer, current_rec_buffer, output_volume, previous_scaling_factor
 
     # Setup: First Recording
     if not setup_donerecording:  # If setup is not done i.e. if the master loop hasn't been recorded to yet
