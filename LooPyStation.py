@@ -42,6 +42,7 @@ init_volume = 14  # Initial volume for each Track
 max_volume = 20  # Max volume for each Track
 display_data = ""  # Secondary info to show on Display
 display_count = 0  # Timer to show secondary info on Display
+pause_callback = int(0.5*RATE/CHUNK)  # Pauses 2 seconds approx. the loop callback
 synth_initialized = False  # Flag
 set_recording_file = False  # Flag to set Recording Audio Session waiting to starting of Master Track
 rec_file = False  # Flag for the Recording Audio Session activity
@@ -311,10 +312,10 @@ def export_session():  # In Mode 2, holding Mute Button, exports all the initial
 
     for i in range(number_of_tracks):
         if loops[i].initialized >= 1:
-            audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
+            audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
             write_track_file_session(audio_buffer, date_time_now, i, 1)
             if loops[i].initialized >= 2:
-                audio_buffer = loops[i].dub_audio[:loops[i].length].tobytes()
+                audio_buffer = loops[i].main_audio[:loops[i].length].tobytes()
                 write_track_file_session(audio_buffer, date_time_now, i, 2)
     print("Session 'session_" + str(date_time_now) + "' SAVED Successfully")
     print("-----------------------")
@@ -363,9 +364,9 @@ def load_wav(session_file_path, session_track_number, session_track_init, sessio
         if session_track_number == 0:
             LENGTH = num_blocks
         if session_track_init ==1:
-            loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
-        if session_track_init ==2:
             loops[session_track_number].dub_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
+        if session_track_init ==2:
+            loops[session_track_number].main_audio[:num_blocks] = audio_data[:num_blocks * CHUNK].reshape(num_blocks, CHUNK)
         loops[session_track_number].length = num_blocks
         loops[session_track_number].volume = session_track_volume
         loops[session_track_number].initialized = session_track_init
@@ -873,7 +874,13 @@ loops = [audioloop() for _ in range(number_of_tracks)]
 # Audio Processing Callback
 @client.set_process_callback
 def looping_callback(frames):
-    global play_buffer, current_rec_buffer, output_volume, previous_scaling_factor
+    global play_buffer, current_rec_buffer, pause_callback, output_volume, previous_scaling_factor
+
+    if pause_callback > 1:  # Little "pause" for the the loopback
+        play_buffer[:] = np.multiply(silence, output_volume, out=None, casting='unsafe').astype(np.int16)
+        pause_callback -= 1
+        print(pause_callback, "   ", end='\r')
+        return
 
     # Setup: First Recording
     if not setup_donerecording:  # If setup is not done i.e. if the master loop hasn't been recorded to yet
